@@ -1,0 +1,62 @@
+name: ci-cd
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGISTRY: ${{ vars.ACR_LOGIN_SERVER }}
+      IMAGE_NAME: containerapp-manager
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build ContainerApp.Manager.sln -c Release
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.REGISTRY }}
+
+      - name: Build and push image
+        run: |
+          docker build -t $REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
+          docker push $REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file deploy/main.bicep \
+            --parameters \
+              environmentName=${{ vars.ACA_ENV_NAME }} \
+              logAnalyticsName=${{ vars.LOG_ANALYTICS_NAME }} \
+              appInsightsName=${{ vars.APPINSIGHTS_NAME }} \
+              storageAccountName=${{ vars.STORAGE_ACCOUNT_NAME }} \
+              keyVaultName=${{ vars.KEYVAULT_NAME }} \
+              communicationName=${{ vars.COMMUNICATION_NAME }} \
+              containerAppName=${{ vars.CONTAINER_APP_NAME }} \
+              image=$REGISTRY/$IMAGE_NAME:$IMAGE_TAG \
+              registryServer=${{ env.REGISTRY }} \
+              registryUsername=unused \
+              registryPassword=unused
+
+
