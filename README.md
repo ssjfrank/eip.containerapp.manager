@@ -15,21 +15,23 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
 
 ## ✨ Key Features
 
-### 🎯 **Smart Auto-Scaling**
-- **Queue Depth Monitoring** - Real-time TIBCO EMS queue depth analysis
-- **Consumer Presence Detection** - Monitors active message consumers
-- **Threshold-Based Scaling** - Configurable start thresholds and desired replica counts
-- **Idle Timeout Management** - Automatic scale-down when queues are empty
-- **Cooldown Protection** - Prevents scaling thrashing with configurable cooldown periods
+### 🎯 **Simplified Queue-Driven Scaling**
+- **Message-Based Scaling** - Simple logic: Messages present = Start, No messages = Stop
+- **Enhanced Consumer Detection** - Precise consumer counts via TIBCO EMS Admin API
+- **Schedule Window Protection** - Apps stay running during scheduled periods regardless of queue state
+- **Multi-Queue Protection** - Prevents restart conflicts across multiple queues per container app
+- **Smart Restart Logic** - 3-attempt retry mechanism with exponential backoff
 
-### ⏰ **Schedule-Based Scaling**
+### ⏰ **Schedule-Based Scaling with Protection**
 - **Cron Expression Support** - Complex time-based scaling policies using cron syntax
+- **Schedule Window Protection** - Never stop apps during their scheduled periods
 - **Time Window Management** - Define scaling windows with specific durations
 - **Multiple Schedule Support** - Configure multiple overlapping or sequential schedules
 - **Timezone Handling** - UTC-based scheduling with proper timezone support
 
 ### 🔧 **Enterprise Integration**
 - **TIBCO EMS 10.4.0** - Native integration with latest TIBCO Enterprise Message Service
+- **TIBCO EMS Admin API** - Enhanced monitoring with precise consumer counts and queue statistics
 - **Azure Container Apps** - Direct integration with Azure Resource Manager APIs
 - **Azure Services** - Comprehensive Azure ecosystem integration:
   - **Azure Table Storage** - State persistence and leader election
@@ -45,15 +47,19 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
 - **State Persistence** - Maintains scaling history and operational state
 - **Thread Safety** - Concurrent operation support with proper locking
 
-### 📊 **Monitoring & Observability**
+### 📊 **Advanced Monitoring & Alerting**
+- **Long Processing Alerts** - Graduated email notifications for messages taking too long (20min, 25min, 30min+)
+- **Enhanced Queue Statistics** - Precise message counts, consumer tracking, and throughput metrics
+- **Processing Duration Tracking** - Monitor message age and processing times per queue
 - **OpenTelemetry Integration** - Distributed tracing and metrics
 - **Azure Monitor Export** - Native Azure Application Insights integration
 - **Structured Logging** - Comprehensive logging with correlation IDs
 - **Health Endpoints** - Kubernetes-ready liveness and readiness probes
-- **Email Notifications** - Configurable alerts for scaling events
+- **Rich Email Notifications** - Context-aware alerts with restart attempt tracking
 
 ### 🚀 **DevOps Ready**
-- **Docker Containerization** - Production-ready container images
+- **Docker Containerization** - Production-ready container images with manual DLL support
+- **Complete Debug Environment** - Docker Compose with Azurite, TIBCO EMS, and mock services
 - **GitHub Actions CI/CD** - Automated build, test, and deployment pipeline
 - **Azure Bicep IaC** - Infrastructure as Code deployment templates
 - **Multi-Environment Support** - Development, staging, and production configurations
@@ -83,13 +89,41 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
 
 | Component | Description |
 |-----------|-------------|
-| **Decision Engine** | Main orchestrator that evaluates scaling decisions based on EMS data and schedules |
-| **EMS Client** | TIBCO EMS integration with connection management and queue monitoring |
+| **Decision Engine** | Simplified orchestrator using message-driven scaling with schedule protection |
+| **EMS Client** | TIBCO EMS integration with Admin API support for precise consumer monitoring |
 | **Container App Manager** | Azure Resource Manager integration for scaling operations |
 | **Leader Election Service** | Ensures only one instance makes decisions in multi-replica deployments |
-| **State Store** | Persistent storage for scaling history and operational state |
-| **Schedule Evaluator** | Cron-based scheduling engine for time-window policies |
-| **Notification Service** | Email alerting system for scaling events and system status |
+| **Enhanced State Store** | Persistent storage with processing duration tracking and restart history |
+| **Schedule Evaluator** | Cron-based scheduling with window protection against queue-driven stops |
+| **Alert Service** | Long processing alerts and rich email notifications with context |
+
+## 🆕 What's New in v2.0
+
+### 🎯 **Simplified Queue-Driven Scaling**
+Gone are complex thresholds and idle timeouts! The new logic is simple and reliable:
+- **Messages present in queue → Start container app**
+- **No messages in queue → Stop container app**
+- **Schedule window active → Keep running regardless of queue state**
+
+### ⏰ **Long Message Processing Alerts**
+Monitor message processing times without automatic intervention:
+- **Graduated alerts** at configurable intervals (20min, 25min, 30min+)
+- **Rich email notifications** with queue status and processing duration
+- **Support team decides** - no automatic actions, just intelligent monitoring
+
+### 🔧 **TIBCO EMS Admin API Integration**
+Enhanced queue monitoring with precise data:
+- **Exact consumer counts** - no more guessing about active receivers
+- **Real message statistics** - accurate pending counts and throughput metrics
+- **Message age tracking** - know exactly how long messages have been waiting
+- **Graceful fallback** - automatically falls back to basic mode if admin API unavailable
+
+### 🐳 **Complete Debug Environment**
+Full containerized development experience:
+- **Docker Compose setup** with all dependencies included
+- **Azurite** for Azure Storage emulation
+- **TIBCO EMS server** with pre-configured queues
+- **Mock Azure services** for complete local development
 
 ## 📦 Installation & Setup
 
@@ -116,7 +150,12 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
     "Password": "your-ems-password",
     "ConnectionTimeoutMs": 30000,
     "ReconnectDelayMs": 5000,
-    "MaxReconnectAttempts": 3
+    "MaxReconnectAttempts": 3,
+    "AdminUsername": "admin-user",
+    "AdminPassword": "admin-password",
+    "UseAdminAPI": true,
+    "AdminConnectionTimeoutMs": 15000,
+    "FallbackToBasicMode": true
   },
   "Storage": {
     "ConnectionString": "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
@@ -124,14 +163,18 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
   "Monitor": {
     "PollIntervalSeconds": 15,
     "CooldownMinutes": 5,
+    "MessageProcessingAlerts": {
+      "FirstAlertMinutes": 20,
+      "FollowupIntervalMinutes": 5,
+      "MaxAlerts": 6,
+      "AlertEmails": ["support@company.com"],
+      "Enabled": true
+    },
     "Mappings": [
       {
         "ResourceGroup": "rg-production",
         "ContainerApp": "my-worker-app",
         "DesiredReplicas": 3,
-        "StartThreshold": 5,
-        "IdleTimeoutMinutes": 10,
-        "NoListenerTimeoutMinutes": 3,
         "Queues": [
           "Q.Orders.Processing",
           "Q.Inventory.Updates"
@@ -147,7 +190,11 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
         "NotifyEmails": [
           "ops-team@company.com",
           "dev-team@company.com"
-        ]
+        ],
+        "MaxRestartAttempts": 3,
+        "RestartCooldownMinutes": 5,
+        "ConsumerTimeoutMinutes": 10,
+        "StartupGracePeriodMinutes": 3
       }
     ]
   }
@@ -161,10 +208,11 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
 | `EMS_CONNECTION_STRING` | TIBCO EMS server connection string | ✅ |
 | `EMS_USERNAME` | EMS authentication username | ✅ |
 | `EMS_PASSWORD` | EMS authentication password | ✅ |
+| `EMS_ADMIN_USERNAME` | EMS admin user for enhanced monitoring | ❌ |
+| `EMS_ADMIN_PASSWORD` | EMS admin password for enhanced monitoring | ❌ |
 | `STORAGE_CONNECTION_STRING` | Azure Storage connection string | ✅ |
 | `ACS_CONNECTION_STRING` | Azure Communication Services connection | ❌ |
 | `KEYVAULT_URI` | Azure Key Vault URI for secrets | ❌ |
-| `ACS_EMAIL_SENDER` | Sender email for notifications | ❌ |
 
 ### 🐳 Docker Deployment
 
@@ -207,53 +255,123 @@ Set up the following secrets in your GitHub repository:
 
 The CI/CD pipeline will automatically deploy on pushes to `main` branch.
 
+### 🐳 Debug Environment Setup
+
+For local development and testing, use the complete Docker debug environment:
+
+```bash
+# Start all debug services (Azurite, TIBCO EMS, mock Azure services)
+docker-compose -f docker-compose.debug.yml up -d
+
+# View logs
+docker-compose -f docker-compose.debug.yml logs -f
+
+# Stop all services
+docker-compose -f docker-compose.debug.yml down
+```
+
+**Debug Services Included:**
+- **Azurite** - Azure Storage emulation (Tables, Blobs, Queues)
+- **TIBCO EMS** - Pre-configured with test queues
+- **Azure Mock Services** - Communication services and other Azure API mocks
+- **Pre-configured Queues:** `Q.Debug.Test1`, `Q.Debug.Test2`, `Q.Debug.Worker`, `Q.Debug.MultiQueue1-3`
+
+See [DEBUG-SETUP.md](DEBUG-SETUP.md) for detailed setup instructions.
+
+### 🔧 TIBCO EMS Admin API Integration
+
+For enhanced queue monitoring with precise consumer counts and message statistics:
+
+#### Required Files
+Place these DLLs from your TIBCO EMS installation in `src/ContainerApp.Manager/libs/tibco/`:
+- `TIBCO.EMS.ADMIN.dll`
+- `TIBCO.EMS.UFO.dll`
+
+#### Enhanced Capabilities
+- **Exact Consumer Counts** - Know precisely how many active consumers are processing
+- **Detailed Message Statistics** - Access message rates, throughput, and queue performance
+- **Message Age Information** - Determine processing duration and oldest message age
+- **Real-time Queue Health** - Monitor queue performance and health indicators
+
+#### Configuration
+```json
+{
+  "Ems": {
+    "UseAdminAPI": true,
+    "AdminUsername": "admin-user",
+    "AdminPassword": "admin-password", 
+    "AdminConnectionTimeoutMs": 15000,
+    "FallbackToBasicMode": true
+  }
+}
+```
+
+See [TIBCO-ADMIN-SETUP.md](TIBCO-ADMIN-SETUP.md) for complete setup instructions.
+
 ## 🎛️ Usage Examples
 
-### Basic Queue Monitoring
+### Simple Message-Driven Scaling
 ```json
 {
   "ResourceGroup": "rg-production",
   "ContainerApp": "order-processor",
   "DesiredReplicas": 2,
-  "StartThreshold": 10,
-  "IdleTimeoutMinutes": 15,
-  "Queues": ["Q.Orders.New", "Q.Orders.Priority"]
+  "Queues": ["Q.Orders.New", "Q.Orders.Priority"],
+  "NotifyEmails": ["ops@company.com"],
+  "MaxRestartAttempts": 3,
+  "RestartCooldownMinutes": 5
 }
 ```
+**Logic**: Messages present → Start, No messages → Stop
 
-### Advanced Scheduled Scaling
+### Schedule-Protected Scaling
 ```json
 {
+  "ResourceGroup": "rg-production", 
+  "ContainerApp": "business-processor",
+  "DesiredReplicas": 3,
+  "Queues": ["Q.Business.Critical"],
   "Schedules": [
     {
       "Cron": "0 0 8 * * MON-FRI",
       "DesiredReplicas": 5,
-      "WindowLabel": "Morning Peak",
-      "DurationMinutes": 240
-    },
-    {
-      "Cron": "0 0 13 * * MON-FRI", 
-      "DesiredReplicas": 8,
-      "WindowLabel": "Afternoon Peak",
-      "DurationMinutes": 300
+      "WindowLabel": "Business Hours",
+      "DurationMinutes": 480
     }
-  ]
+  ],
+  "NotifyEmails": ["business-ops@company.com"]
 }
 ```
+**Logic**: During business hours → Keep running regardless of queue state
 
-### Multi-Queue Monitoring
+### Long Processing Alerts
+```json
+{
+  "MessageProcessingAlerts": {
+    "FirstAlertMinutes": 20,
+    "FollowupIntervalMinutes": 5,
+    "MaxAlerts": 6,
+    "AlertEmails": ["support@company.com", "dev-team@company.com"],
+    "Enabled": true
+  }
+}
+```
+**Alerts**: 20min → First alert, 25min → Second alert, 30min+ → Final alerts
+
+### Multi-Queue Protection
 ```json
 {
   "Queues": [
     "Q.Processing.High",
     "Q.Processing.Medium", 
-    "Q.Processing.Low",
-    "Q.DeadLetter.Retry"
+    "Q.Processing.Low"
   ],
-  "StartThreshold": 15,
-  "DesiredReplicas": 4
+  "DesiredReplicas": 4,
+  "ConsumerTimeoutMinutes": 10,
+  "StartupGracePeriodMinutes": 3
 }
 ```
+**Logic**: Any queue has messages → Start, All queues empty → Stop
 
 ## 📊 Monitoring & Health Checks
 
@@ -300,9 +418,30 @@ dotnet run --project src/ContainerApp.Manager
 ```
 
 ### Local Development
+
+#### Docker Debug Environment (Recommended)
+```bash
+# Start complete debug environment
+docker-compose -f docker-compose.debug.yml up -d
+
+# Run the application in debug mode
+dotnet run --project src/ContainerApp.Manager --launch-profile Debug
+```
+
+See [DEBUG-SETUP.md](DEBUG-SETUP.md) for complete setup instructions.
+
+#### Manual Development Setup
 1. Update `appsettings.Development.json` with local settings
-2. Use Azure Storage Emulator or real Azure Storage
+2. Use Azure Storage Emulator (Azurite) or real Azure Storage
 3. Configure TIBCO EMS test environment
+4. **Optional**: Set up TIBCO EMS Admin API (see [TIBCO-ADMIN-SETUP.md](TIBCO-ADMIN-SETUP.md))
+
+#### TIBCO EMS Admin DLLs
+For enhanced queue monitoring, place required DLLs in `src/ContainerApp.Manager/libs/tibco/`:
+- `TIBCO.EMS.ADMIN.dll`
+- `TIBCO.EMS.UFO.dll`
+
+**Note**: These DLLs are not available via NuGet and must be copied from your TIBCO EMS installation.
 
 ## 📈 Performance & Scalability
 

@@ -30,4 +30,25 @@
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.8.1" />
     <PackageReference Include="TIBCO.EMS" Version="10.4.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Manual TIBCO EMS Admin DLL References -->
+    <Reference Include="TIBCO.EMS.ADMIN">
+      <HintPath>libs\tibco\TIBCO.EMS.ADMIN.dll</HintPath>
+      <Private>true</Private>
+      <CopyLocal>true</CopyLocal>
+    </Reference>
+    <Reference Include="TIBCO.EMS.UFO">
+      <HintPath>libs\tibco\TIBCO.EMS.UFO.dll</HintPath>
+      <Private>true</Private>
+      <CopyLocal>true</CopyLocal>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ensure DLL files are copied to output directory -->
+    <None Include="libs\tibco\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
