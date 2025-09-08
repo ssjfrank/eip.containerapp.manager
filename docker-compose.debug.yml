@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  containerapp-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    container_name: containerapp-manager-debug
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - DOTNET_USE_POLLING_FILE_WATCHER=true
+      - DOTNET_WATCH_SUPPRESS_MSBUILD_INCREMENTALISM=true
+      # Azure Storage (using Azurite)
+      - Storage__ConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+      # EMS Configuration (mock server)
+      - Ems__ConnectionString=tcp://tibco-ems:7222
+      - Ems__Username=admin
+      - Ems__Password=admin
+      - Ems__ConnectionTimeoutMs=5000
+      - Ems__ReconnectDelayMs=2000
+      - Ems__MaxReconnectAttempts=5
+      # Azure Communication Services (mock/disabled)
+      - Acs__ConnectionString=
+      # Key Vault (disabled for local dev)
+      - KeyVault__Uri=
+      # Monitor configuration with realistic test values
+      - Monitor__PollIntervalSeconds=10
+      - Monitor__CooldownMinutes=2
+    ports:
+      - "8080:8080"
+      - "5000:5000"  # Additional port for debugging
+    volumes:
+      - ./src:/src:ro
+      - ./:/workspace:ro
+    depends_on:
+      - azurite
+      - tibco-ems
+    networks:
+      - debug-network
+    command: ["dotnet", "watch", "run", "--project", "/src/ContainerApp.Manager/ContainerApp.Manager.csproj", "--urls", "http://0.0.0.0:8080"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: azurite-debug
+    ports:
+      - "10000:10000"  # Blob service
+      - "10001:10001"  # Queue service  
+      - "10002:10002"  # Table service
+    volumes:
+      - azurite-data:/data
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+    networks:
+      - debug-network
+    restart: unless-stopped
+
+  tibco-ems:
+    image: tibco/ftl-ems:latest
+    container_name: tibco-ems-debug
+    environment:
+      - EMS_INIT_JSON=/config/ems-init.json
+    ports:
+      - "7222:7222"   # EMS port
+      - "7243:7243"   # EMS Admin port
+    volumes:
+      - ./debug/ems-config:/config:ro
+      - ems-data:/data
+    networks:
+      - debug-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -an | grep 7222 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Optional: Mock Azure services for testing Container Apps management
+  azure-mock:
+    image: mockserver/mockserver:latest
+    container_name: azure-mock-debug
+    ports:
+      - "1080:1080"
+    environment:
+      - MOCKSERVER_PROPERTY_FILE=/config/mockserver.properties
+      - MOCKSERVER_INITIALIZATION_JSON_PATH=/config/azure-mock-expectations.json
+    volumes:
+      - ./debug/azure-mock:/config:ro
+    networks:
+      - debug-network
+    restart: unless-stopped
+
+volumes:
+  azurite-data:
+    name: containerapp-manager-azurite-data
+  ems-data:
+    name: containerapp-manager-ems-data
+
+networks:
+  debug-network:
+    name: containerapp-manager-debug
+    driver: bridge

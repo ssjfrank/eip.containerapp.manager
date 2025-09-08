@@ -24,6 +24,8 @@ public sealed class QueueObservation
     public string QueueName { get; init; } = string.Empty;
     public int ApproximateDepth { get; init; }
     public ConsumerPresenceStatus ConsumerPresence { get; init; } = ConsumerPresenceStatus.Unknown;
+    public bool HasMessages => ApproximateDepth > 0;
+    public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class EmsClient : IEmsClient
@@ -66,17 +68,31 @@ public sealed class EmsClient : IEmsClient
             }
             browser.Close();
 
-            // Check for active consumers by trying to get queue information
+            // Simplified consumer detection logic
             var consumerPresence = ConsumerPresenceStatus.Unknown;
             try
             {
-                // Note: TIBCO EMS doesn't directly expose consumer count via standard API
-                // This is a simplified approach - in production you might need admin API
-                consumerPresence = messageCount > 0 ? ConsumerPresenceStatus.None : ConsumerPresenceStatus.Unknown;
+                // Simple approach: if messages exist but aren't being consumed immediately,
+                // assume no active consumers. This is basic but sufficient for our use case.
+                // For more accurate detection, TIBCO Admin API would be needed.
+                
+                if (messageCount > 0)
+                {
+                    // Messages present - assume no consumers for simplicity
+                    // (In reality, consumers might be processing slowly)
+                    consumerPresence = ConsumerPresenceStatus.None;
+                }
+                else
+                {
+                    // No messages - could mean consumers processed everything
+                    // or no consumers exist. We'll assume consumers are present.
+                    consumerPresence = ConsumerPresenceStatus.Present;
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Could not determine consumer presence for queue {Queue}", queueName);
+                consumerPresence = ConsumerPresenceStatus.Unknown;
             }
 
             var observation = new QueueObservation
@@ -86,8 +102,8 @@ public sealed class EmsClient : IEmsClient
                 ConsumerPresence = consumerPresence
             };
 
-            _logger.LogDebug("Observed EMS queue {Queue}: {Depth} messages, consumers: {Consumers}", 
-                queueName, messageCount, consumerPresence);
+            _logger.LogDebug("Observed EMS queue {Queue}: {Depth} messages, consumers: {Consumers}, hasMessages: {HasMessages}", 
+                queueName, messageCount, consumerPresence, messageCount > 0);
 
             return observation;
         }

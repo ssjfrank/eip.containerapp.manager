@@ -1,0 +1,29 @@
+# Build + test artifacts
+**/bin/**
+**/obj/**
+**/TestResults/**
+**/coverage/**
+
+# IDE noise
+**/.vs/**
+**/.idea/**
+
+# Packages & artifacts
+**/packages/**
+*.nupkg
+*.snupkg
+
+# Logs & misc
+**/*.log
+**/*.etl
+
+# Secrets / creds (use appsettings.sample.json for docs)
+**/.env
+**/.env.*
+**/secrets/**
+**/*secrets*.json
+**/appsettings*.json
+*.pfx
+*.p12
+*.pem
+*.key

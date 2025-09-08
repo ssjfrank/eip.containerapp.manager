@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+# Project Rules (C#)
+
+## Minimal-diff policy
+- If a function already exists, **preserve its implementation and signature** unless:
+  1) there’s a correctness bug, 2) compile/test failure proves a change is required, or
+  3) I explicitly ask for a refactor.
+- Prefer **minimal diffs**: change the fewest lines needed; avoid churn (renames, reshuffles, stylistic rewrites).
+- Do not change public APIs without explicit instruction.
+- Keep formatting consistent with current files (`dotnet format` acceptable, but no wholesale rewrites).
+- When you must change an existing function, explain *why* and show a concise patch.
+
+
 ## Common Development Commands
 
 ### Build and Test

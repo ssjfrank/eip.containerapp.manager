@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
 using ContainerApp.Manager.Config;
+using System.Text.Json;
 
 namespace ContainerApp.Manager.State;
 
@@ -24,6 +25,18 @@ public sealed class StateEntity : ITableEntity
     public string? LastActionResult { get; set; }
     public DateTimeOffset? CooldownUntil { get; set; }
     public DateTimeOffset? LastNonZeroDepthAt { get; set; }
+    
+    // New retry mechanism fields
+    public int RestartAttemptCount { get; set; }
+    public DateTimeOffset? LastRestartTime { get; set; }
+    public string? RestartHistoryJson { get; set; }
+    
+    // Schedule tracking fields
+    public DateTimeOffset? LastScheduleStart { get; set; }
+    public DateTimeOffset? ScheduleActiveUntil { get; set; }
+    
+    // Queue consumer status (JSON serialized)
+    public string? QueueConsumerStatusJson { get; set; }
 }
 
 public sealed class TableStateStore : IStateStore
@@ -47,7 +60,13 @@ public sealed class TableStateStore : IStateStore
             LastAction = state.LastAction,
             LastActionResult = state.LastActionResult,
             CooldownUntil = state.CooldownUntil,
-            LastNonZeroDepthAt = state.LastNonZeroDepthAt
+            LastNonZeroDepthAt = state.LastNonZeroDepthAt,
+            RestartAttemptCount = state.RestartAttemptCount,
+            LastRestartTime = state.LastRestartTime,
+            LastScheduleStart = state.LastScheduleStart,
+            ScheduleActiveUntil = state.ScheduleActiveUntil,
+            RestartHistoryJson = state.RestartHistory.Count > 0 ? JsonSerializer.Serialize(state.RestartHistory) : null,
+            QueueConsumerStatusJson = state.QueueConsumerStatus.Count > 0 ? JsonSerializer.Serialize(state.QueueConsumerStatus) : null
         };
         await _tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken);
     }
@@ -58,7 +77,8 @@ public sealed class TableStateStore : IStateStore
         {
             var response = await _tableClient.GetEntityAsync<StateEntity>("state", containerApp, cancellationToken: cancellationToken);
             var e = response.Value;
-            return new RuntimeState
+            
+            var state = new RuntimeState
             {
                 LastStart = e.LastStart,
                 LastStop = e.LastStop,
@@ -66,8 +86,25 @@ public sealed class TableStateStore : IStateStore
                 LastAction = e.LastAction,
                 LastActionResult = e.LastActionResult,
                 CooldownUntil = e.CooldownUntil,
-                LastNonZeroDepthAt = e.LastNonZeroDepthAt
+                LastNonZeroDepthAt = e.LastNonZeroDepthAt,
+                RestartAttemptCount = e.RestartAttemptCount,
+                LastRestartTime = e.LastRestartTime,
+                LastScheduleStart = e.LastScheduleStart,
+                ScheduleActiveUntil = e.ScheduleActiveUntil
             };
+            
+            // Deserialize complex objects
+            if (!string.IsNullOrEmpty(e.RestartHistoryJson))
+            {
+                state.RestartHistory = JsonSerializer.Deserialize<List<RestartAttempt>>(e.RestartHistoryJson) ?? new();
+            }
+            
+            if (!string.IsNullOrEmpty(e.QueueConsumerStatusJson))
+            {
+                state.QueueConsumerStatus = JsonSerializer.Deserialize<Dictionary<string, QueueConsumerState>>(e.QueueConsumerStatusJson) ?? new();
+            }
+            
+            return state;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
