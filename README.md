@@ -60,6 +60,7 @@ Perfect for enterprise environments where workloads need dynamic scaling based o
 ### 🚀 **DevOps Ready**
 - **Docker Containerization** - Production-ready container images with manual DLL support
 - **Complete Debug Environment** - Docker Compose with Azurite, TIBCO EMS, and mock services
+- **Team Development Ready** - Optimized .gitignore, VS Code settings, and 5-minute onboarding
 - **GitHub Actions CI/CD** - Automated build, test, and deployment pipeline
 - **Azure Bicep IaC** - Infrastructure as Code deployment templates
 - **Multi-Environment Support** - Development, staging, and production configurations
@@ -126,6 +127,8 @@ Full containerized development experience:
 - **Mock Azure services** for complete local development
 
 ## 📦 Installation & Setup
+
+> 🚀 **Quick Start**: New to the project? See [GETTING-STARTED.md](GETTING-STARTED.md) for 5-minute setup guide.
 
 ### Prerequisites
 - **.NET 8.0 SDK** or later

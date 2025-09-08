@@ -1,0 +1,96 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/ContainerApp.Manager.sln",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "publish",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "publish",
+        "${workspaceFolder}/src/ContainerApp.Manager/ContainerApp.Manager.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "watch",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "watch",
+        "run",
+        "--project",
+        "${workspaceFolder}/src/ContainerApp.Manager/ContainerApp.Manager.csproj"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "clean",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "clean",
+        "${workspaceFolder}/ContainerApp.Manager.sln"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "restore",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "restore",
+        "${workspaceFolder}/ContainerApp.Manager.sln"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "format",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "format",
+        "${workspaceFolder}/ContainerApp.Manager.sln"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "docker-build",
+      "type": "shell",
+      "command": "docker build -t containerapp-manager .",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker-debug-up",
+      "type": "shell",
+      "command": "docker-compose -f docker-compose.debug.yml up -d",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker-debug-down",
+      "type": "shell",
+      "command": "docker-compose -f docker-compose.debug.yml down",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

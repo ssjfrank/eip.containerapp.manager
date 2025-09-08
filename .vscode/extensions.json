@@ -1,0 +1,42 @@
+{
+  "recommendations": [
+    // .NET and C# Development
+    "ms-dotnettools.csharp",
+    "ms-dotnettools.vscode-dotnet-runtime",
+    
+    // IntelliCode
+    "visualstudioexptteam.vscodeintellicode",
+    "visualstudioexptteam.intellicode-api-usage-examples",
+    
+    // Azure Integration
+    "ms-azure-devops.azure-pipelines",
+    "ms-vscode.azure-account",
+    "ms-azuretools.vscode-azureresourcegroups",
+    "ms-azuretools.vscode-azurestorage",
+    
+    // Docker Support
+    "ms-azuretools.vscode-docker",
+    
+    // Git Integration
+    "eamodio.gitlens",
+    "github.vscode-pull-request-github",
+    
+    // JSON and Configuration
+    "ms-vscode.vscode-json",
+    
+    // Code Quality
+    "sonarsource.sonarlint-vscode",
+    
+    // Productivity
+    "ms-vscode.powershell",
+    "redhat.vscode-yaml",
+    "wholroyd.jinja",
+    
+    // Documentation
+    "yzhang.markdown-all-in-one",
+    "davidanson.vscode-markdownlint",
+    
+    // API Testing (useful for health endpoints)
+    "humao.rest-client"
+  ]
+}

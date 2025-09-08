@@ -1,0 +1,73 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug",
+      "Microsoft.Hosting.Lifetime": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "System.Net.Http.HttpClient": "Information",
+      "ContainerApp.Manager": "Debug",
+      "Azure": "Information"
+    }
+  },
+  "Monitor": {
+    "PollIntervalSeconds": 10,
+    "CooldownMinutes": 1,
+    "MessageProcessingAlerts": {
+      "FirstAlertMinutes": 5,
+      "FollowupIntervalMinutes": 3,
+      "MaxAlerts": 4,
+      "AlertEmails": [
+        "dev-team@company.com"
+      ],
+      "Enabled": true
+    },
+    "Mappings": [
+      {
+        "ResourceGroup": "rg-dev",
+        "ContainerApp": "dev-app",
+        "DesiredReplicas": 1,
+        "Queues": [
+          "Q.Dev.Test1",
+          "Q.Dev.Test2"
+        ],
+        "Schedules": [
+          {
+            "Cron": "0 */15 * * * ?",
+            "DesiredReplicas": 2,
+            "WindowLabel": "Every 15 Minutes Test",
+            "DurationMinutes": 10
+          }
+        ],
+        "NotifyEmails": [
+          "dev-team@company.com"
+        ],
+        "MaxRestartAttempts": 3,
+        "RestartCooldownMinutes": 2,
+        "ConsumerTimeoutMinutes": 3,
+        "StartupGracePeriodMinutes": 1
+      }
+    ]
+  },
+  "Acs": {
+    "ConnectionString": "YOUR_AZURE_COMMUNICATION_SERVICES_CONNECTION_STRING"
+  },
+  "Storage": {
+    "ConnectionString": "DefaultEndpointsProtocol=https;AccountName=YOUR_STORAGE_ACCOUNT;AccountKey=YOUR_STORAGE_KEY;EndpointSuffix=core.windows.net"
+  },
+  "KeyVault": {
+    "Uri": "https://YOUR_KEYVAULT.vault.azure.net/"
+  },
+  "Ems": {
+    "ConnectionString": "tcp://localhost:7222",
+    "Username": "YOUR_EMS_USERNAME",
+    "Password": "YOUR_EMS_PASSWORD",
+    "ConnectionTimeoutMs": 5000,
+    "ReconnectDelayMs": 2000,
+    "MaxReconnectAttempts": 5,
+    "AdminUsername": "YOUR_EMS_ADMIN_USERNAME",
+    "AdminPassword": "YOUR_EMS_ADMIN_PASSWORD",
+    "UseAdminAPI": true,
+    "AdminConnectionTimeoutMs": 10000,
+    "FallbackToBasicMode": true
+  }
+}

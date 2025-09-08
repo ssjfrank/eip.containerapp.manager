@@ -1,0 +1,80 @@
+{
+  // .NET and C# Configuration
+  "dotnet.defaultSolution": "ContainerApp.Manager.sln",
+  "omnisharp.enableRoslynAnalyzers": true,
+  "omnisharp.enableImportCompletion": true,
+  
+  // Code Formatting
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnType": true,
+  
+  // C# Specific Settings
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false
+  },
+  
+  // JSON Settings
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features",
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+  
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features",
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+  
+  // File Associations
+  "files.associations": {
+    "appsettings*.json": "jsonc",
+    "*.template": "json"
+  },
+  
+  // Exclude build artifacts from explorer
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/*.user": true
+  },
+  
+  // Search Exclusions
+  "search.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/*.dll": true,
+    "**/*.pdb": true
+  },
+  
+  // Git Settings
+  "git.ignoreLimitWarning": true,
+  
+  // Docker Integration
+  "docker.commands.build": "docker build -t containerapp-manager .",
+  "docker.commands.run": "docker run -p 8080:8080 containerapp-manager",
+  
+  // Terminal Settings
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "icon": "terminal-powershell"
+    }
+  },
+  
+  // Extension Settings
+  "csharp.semanticHighlighting.enabled": true,
+  "csharp.format.enable": true,
+  
+  // IntelliSense Settings
+  "editor.quickSuggestions": {
+    "other": true,
+    "comments": false,
+    "strings": true
+  }
+}

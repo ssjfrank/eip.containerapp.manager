@@ -6,11 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Minimal-diff policy
 - If a function already exists, **preserve its implementation and signature** unless:
-  1) there’s a correctness bug, 2) compile/test failure proves a change is required, or
+  1) there's a correctness bug, 2) compile/test failure proves a change is required, or
   3) I explicitly ask for a refactor.
 - Prefer **minimal diffs**: change the fewest lines needed; avoid churn (renames, reshuffles, stylistic rewrites).
 - Do not change public APIs without explicit instruction.
 - Keep formatting consistent with current files (`dotnet format` acceptable, but no wholesale rewrites).
+- **Preserve dependency injection patterns**: Don't modify constructor parameters or service registrations unless required.
+- **Always verify with build**: Run `dotnet build` to ensure changes don't break compilation.
 - When you must change an existing function, explain *why* and show a concise patch.
 
 
@@ -18,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Build and Test
 ```bash
-# Build the solution
+# Build the solution (verify changes don't break compilation)
 dotnet build ContainerApp.Manager.sln -c Release
 
 # Build for Debug
@@ -26,6 +28,9 @@ dotnet build ContainerApp.Manager.sln -c Debug
 
 # Restore dependencies
 dotnet restore ./src/ContainerApp.Manager/ContainerApp.Manager.csproj
+
+# Format code consistently (supports minimal-diff policy)
+dotnet format ContainerApp.Manager.sln
 ```
 
 ### Docker Operations

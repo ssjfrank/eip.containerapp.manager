@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ContainerApp.Manager (Development)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ContainerApp.Manager/bin/Debug/net8.0/ContainerApp.Manager.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/ContainerApp.Manager",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    {
+      "name": "ContainerApp.Manager (Debug Profile)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ContainerApp.Manager/bin/Debug/net8.0/ContainerApp.Manager.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/ContainerApp.Manager",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "env": {
+        "DOTNET_ENVIRONMENT": "Debug",
+        "ASPNETCORE_ENVIRONMENT": "Debug"
+      }
+    },
+    {
+      "name": "Attach to Process",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}

@@ -15,7 +15,6 @@ out/
 
 # User-specific folders
 .vs/
-.vscode/
 .idea/
 
 # Build results
@@ -31,20 +30,28 @@ bld/
 [Oo]bj/
 [Ll]og/
 
-# .NET Core
-project.lock.json
-project.fragment.lock.json
-artifacts/
-**/Properties/launchSettings.json
-
-# MSTest test Results
+# .NET 8.0 and MSTest Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 
-# NUnit
+# Test Results - NUnit, xUnit, MSTest, Coverlet
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+*.trx
+*.runsettings
+TestResults/
+*.cobertura.xml
+coverage.*.xml
+*.coverage
+*.coveragexml
+# xUnit
+xunit-results.xml
+# Coverlet coverage
+coverage.opencover.xml
+coverage.json
+coverage.info
+lcov.info
 
 # Build Results of an ATL Project
 [Dd]ebugPS/
@@ -54,10 +61,13 @@ dlldata.c
 # Benchmark Results
 BenchmarkDotNet.Artifacts/
 
-# .NET Core
+# .NET 8.0 Core Files
 project.lock.json
 project.fragment.lock.json
 artifacts/
+*.runtimeconfig.json
+*.deps.json
+*.dev.json
 
 # StyleCop
 StyleCopReport.xml
@@ -99,15 +109,21 @@ appsettings.Development.json
 appsettings.Local.json
 secrets.json
 
+# But allow template files for team setup
+!appsettings.Development.json.template
+!.env.example
+
+# TIBCO EMS Admin DLLs (manually installed, not in source control)
+src/ContainerApp.Manager/libs/tibco/*.dll
+# But keep the directory structure and README
+!src/ContainerApp.Manager/libs/tibco/README.md
+
 # Rider
 .idea/
 
-# Visual Studio Code
-.vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# Visual Studio Code - Keep team settings, exclude user-specific files
+!.vscode/
+.vscode/settings.json.user
 *.code-workspace
 
 # Local History for Visual Studio Code
@@ -181,9 +197,16 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Docker
-.dockerignore
-Dockerfile.*
+# Docker - Keep main files, exclude temp/generated files
+Dockerfile.tmp
+Dockerfile.*.tmp
+docker-compose.override.yml
+docker-compose.override.*.yml
+.docker/
+# Container runtime files
+.container/
+*.pid
+*.log.json
 
 # Azure
 *.pubxml
