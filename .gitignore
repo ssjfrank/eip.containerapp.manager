@@ -1,0 +1,34 @@
+# Build results
+bin/
+obj/
+logs/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test configuration
+appsettings.test.json
+appsettings.*.json
+!appsettings.json
+
+# Temporary files
+*.tmp
+*.temp
+
+# NuGet packages
+*.nupkg
+*.snupkg
+
+# Docker volumes
+docker-compose.override.yml

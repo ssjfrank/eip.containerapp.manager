@@ -1,0 +1,9 @@
+bin/
+obj/
+logs/
+.git/
+.gitignore
+*.md
+.DS_Store
+.vs/
+.vscode/

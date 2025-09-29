@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-ContainerManager.Service-20250929</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    <PackageReference Include="Azure.ResourceManager" Version="1.13.0" />
+    <PackageReference Include="Azure.ResourceManager.AppContainers" Version="1.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.4" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+  </ItemGroup>
+
+  <!-- TIBCO EMS References -->
+  <ItemGroup>
+    <Content Include="Libs/TIBCO.EMS.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Libs/TIBCO.EMS.ADMIN.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Reference Include="TIBCO.EMS">
+      <HintPath>Libs/TIBCO.EMS.dll</HintPath>
+    </Reference>
+    <Reference Include="TIBCO.EMS.ADMIN">
+      <HintPath>Libs/TIBCO.EMS.ADMIN.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
