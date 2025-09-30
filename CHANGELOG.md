@@ -1,5 +1,238 @@
 # CHANGELOG - ContainerManager.Service
 
+## [2025-09-30] - Email Notifications & Decision Engine Fix
+
+### Summary
+Changed notification system from internal NotificationMessage format to EmailMessage format (JSON, ready for email processing). Fixed critical bug in DecisionEngine where container would restart while actively processing messages, interrupting in-flight work.
+
+---
+
+## Features Added
+
+### 1. ✅ Email Notification System
+**Files Changed:**
+- `Models/EmailMessage.cs` - New model with Subject, Body, ToEmail properties (JSON serialization)
+- `Models/NotificationMessage.cs` - DELETED (replaced by EmailMessage)
+- `Services/INotificationPublisher.cs` - Changed to use EmailMessage
+- `Services/NotificationPublisher.cs` - Updated to send EmailMessage format
+- `Workers/MonitoringWorker.cs` - All 5 notification sites updated to EmailMessage
+- `Configuration/ManagerSettings.cs` - Added NotificationEmailRecipient property with email validation
+- `test-data/sample-notifications.json` - Updated with EmailMessage examples
+- `.env.example` - Added NotificationEmailRecipient configuration
+
+**What Changed:**
+
+Old NotificationMessage format:
+```json
+{
+  "Timestamp": "2025-09-30T10:35:45Z",
+  "ContainerApp": "container-app-1",
+  "Action": "RESTART",
+  "Status": "SUCCESS",
+  "Message": "Container restarted successfully...",
+  "QueueName": "queue.app1.requests"
+}
+```
+
+New EmailMessage format:
+```json
+{
+  "to": "ops-team@example.com",
+  "subject": "Container Restart: SUCCESS - container-app-1",
+  "message": "Container 'container-app-1' restarted successfully.\n\nReceivers detected on queues: queue.app1.requests\n\nTimestamp: 2025-09-30 10:35:45 UTC"
+}
+```
+
+**Email Subjects:**
+- `Container Restart: SUCCESS - {containerApp}`
+- `Container Restart: WARNING - {containerApp}` (no receivers detected after timeout)
+- `Container Restart: FAILURE - {containerApp}` (restart operation failed)
+- `Container Stop: SUCCESS - {containerApp}` (idle timeout)
+- `Container Stop: FAILURE - {containerApp}` (stop operation failed)
+
+**Configuration Required:**
+```bash
+ManagerSettings__NotificationEmailRecipient=ops-team@example.com
+# Or multiple recipients:
+ManagerSettings__NotificationEmailRecipient=ops-team@example.com;oncall@example.com
+```
+
+**Impact:** Notifications are now ready for downstream email processing. Breaking change for any existing notification consumers.
+
+---
+
+## Bug Fixes
+
+### 2. ✅ Fixed DecisionEngine Restart During Active Processing
+**Severity:** Critical
+**Issue:** Container would restart while actively processing messages, interrupting in-flight work and potentially causing message failures
+
+**Files Changed:**
+- `Services/DecisionEngine.cs` - Swapped Rule 1 and Rule 2 order
+
+**What Was Wrong:**
+
+Previous logic checked rules in wrong order:
+1. Rule 1: Check if ANY queue stuck (messages, no receivers) → RESTART
+2. Rule 2: Check if ANY queue processing (messages + receivers) → NONE
+3. Rule 3: All idle → STOP
+
+**Problem Scenario:**
+- QueueA: 10 messages being processed by 5 receivers (healthy)
+- QueueB: 3 messages with no receivers (stuck)
+- **Previous behavior**: RESTART immediately (Rule 1 fires, interrupts QueueA processing) ❌
+- **Should do**: NONE (protect QueueA active work, deal with QueueB later) ✅
+
+**What Fixed:**
+
+New logic protects active processing:
+1. **Rule 1**: Check if ANY queue processing (messages + receivers) → NONE (protect active work)
+2. **Rule 2**: Check if ANY queue stuck (messages, no receivers) → RESTART (only if nothing processing)
+3. Rule 3: All idle → STOP (unchanged)
+
+**Code Change:**
+```csharp
+// Rule 1: Check if ANY queue has messages WITH receivers → Do nothing (working normally)
+// This rule runs FIRST to protect active message processing from interruption
+foreach (var queue in queues)
+{
+    if (queue.PendingMessageCount > 0 && queue.ReceiverCount > 0)
+    {
+        return ContainerAction.None;  // Protect active work
+    }
+}
+
+// Rule 2: Check if ANY queue has messages without receivers → RESTART
+// Only runs if no queues are actively processing (Rule 1 didn't return)
+foreach (var queue in queues)
+{
+    if (queue.PendingMessageCount > 0 && queue.ReceiverCount == 0)
+    {
+        return ContainerAction.Restart;  // Safe to restart now
+    }
+}
+```
+
+**Impact on Multi-Queue Scenarios:**
+
+Testing with 2 queues mapped to 1 container (16 total combinations):
+- ✅ Fixed: QueueA (processing) + QueueB (stuck) → Now returns NONE instead of RESTART
+- ✅ Fixed: QueueA (stuck) + QueueB (processing) → Now returns NONE instead of RESTART
+- ✅ All other 14 scenarios unchanged and still correct
+
+**Impact:**
+- Protects active message processing from interruption
+- Prevents message failures due to premature container restarts
+- If one queue stuck while another processing, waits for processing to complete before restarting
+- Note: Stuck queue will wait until active queue finishes (may accumulate messages temporarily)
+
+---
+
+## Configuration Changes
+
+### New Required Configuration
+```json
+{
+  "ManagerSettings": {
+    "NotificationEmailRecipient": "ops-team@example.com"
+    // Or multiple recipients (semicolon or comma separated):
+    // "NotificationEmailRecipient": "ops@example.com;oncall@example.com"
+  }
+}
+```
+
+**Validation:**
+- Required field (service will not start without it)
+- Supports single email: `user@example.com`
+- Supports multiple emails: `user1@example.com;user2@example.com` or `user1@example.com,user2@example.com`
+- Each email validated with regex pattern: `^[^@\s]+@[^@\s]+\.[^@\s]+$`
+
+---
+
+## Breaking Changes
+
+### ⚠️ Notification Message Format - Breaking Change
+**Impact:** Any downstream systems consuming the notification queue will break
+
+**Migration Required:**
+If you have consumers reading from the notification queue:
+1. Update parsers to expect new EmailMessage format
+2. Change field references:
+   - `Timestamp` → Removed (now in message body text)
+   - `ContainerApp` → Parse from `subject` field
+   - `Action` → Parse from `subject` field
+   - `Status` → Parse from `subject` field
+   - `Message` → Now `message` field (lowercase)
+   - `QueueName` → Parse from `message` body text
+   - New field: `to` (email recipient)
+   - New field: `subject` (email subject line)
+
+**Example Downstream Consumer Update:**
+```csharp
+// Before:
+var notification = JsonConvert.DeserializeObject<NotificationMessage>(messageText);
+Console.WriteLine($"Container: {notification.ContainerApp}, Status: {notification.Status}");
+
+// After:
+var emailNotification = JsonConvert.DeserializeObject<EmailMessage>(messageText);
+SendEmail(emailNotification.ToEmail, emailNotification.Subject, emailNotification.Body);
+```
+
+---
+
+## Build Validation
+
+### Build Status
+- ✅ Build: Success
+- ✅ Warnings: 0
+- ✅ Errors: 0
+- ✅ All 16 decision engine scenarios verified correct
+- ✅ NotificationMessage.cs successfully removed
+- ✅ Email validation working for single and multiple recipients
+
+---
+
+## Testing Status
+
+### Decision Engine Logic Testing
+Verified all 16 combinations of two-queue scenarios:
+- ✅ Both queues processing → NONE
+- ✅ One processing, one stuck → NONE (protects active work)
+- ✅ Both stuck → RESTART
+- ✅ Both idle with receivers → STOP after timeout
+- ✅ All other combinations correct
+
+### Email Notification Testing
+- ⬜ Manual testing required: Verify emails sent from notification queue
+- ⬜ Test single recipient configuration
+- ⬜ Test multiple recipients configuration
+- ⬜ Verify email subject/body formatting
+
+---
+
+## Known Limitations
+
+### Stuck Queue During Active Processing
+When one queue is stuck (messages, no receivers) while another is actively processing:
+- Container will NOT restart (protects active processing)
+- Stuck queue messages will accumulate until active processing completes
+- No warning notification sent (feature on hold)
+- Operators should monitor queue depth metrics
+
+**Future Enhancement:** Add warning email when queue stuck > threshold while other queues processing
+
+---
+
+## Next Steps
+
+1. ⬜ Test EmailMessage notifications in real environment
+2. ⬜ Set up downstream email consumer to send actual emails
+3. ⬜ Verify multi-queue decision logic in production
+4. ⬜ Consider adding stuck queue warning feature (email alert without restart)
+5. ⬜ Update any existing notification consumers to new format
+
+---
+
 ## [2025-09-30] - SSL Support & User-Assigned Managed Identity
 
 ### Summary

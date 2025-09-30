@@ -1,70 +1,62 @@
 {
-  "description": "Sample notification messages published to NOTIFICATION.QUEUE",
-  "format": "JSON",
+  "description": "Sample email notification messages published to NOTIFICATION.QUEUE",
+  "format": "JSON - EmailMessage format",
   "examples": [
     {
       "scenario": "Successful container restart",
       "notification": {
-        "Timestamp": "2025-09-29T10:35:45Z",
-        "ContainerApp": "container-app-1",
-        "Action": "RESTART",
-        "Status": "SUCCESS",
-        "Message": "Container restarted successfully, receivers detected on queues: queue.app1.requests, queue.app1.events",
-        "QueueName": "queue.app1.requests, queue.app1.events"
+        "to": "ops-team@example.com",
+        "subject": "Container Restart: SUCCESS - container-app-1",
+        "message": "Container 'container-app-1' restarted successfully.\n\nReceivers detected on queues: queue.app1.requests, queue.app1.events\n\nTimestamp: 2025-09-30 10:35:45 UTC"
       }
     },
     {
       "scenario": "Container restart with warning (no receivers after restart)",
       "notification": {
-        "Timestamp": "2025-09-29T10:40:30Z",
-        "ContainerApp": "container-app-2",
-        "Action": "RESTART",
-        "Status": "WARNING",
-        "Message": "Container restarted but no receivers detected after 5 minutes",
-        "QueueName": "queue.app2.requests"
+        "to": "ops-team@example.com",
+        "subject": "Container Restart: WARNING - container-app-2",
+        "message": "Container 'container-app-2' restarted but no receivers detected after 5 minutes.\n\nQueues: queue.app2.requests\n\nTimestamp: 2025-09-30 10:40:30 UTC"
       }
     },
     {
       "scenario": "Failed container restart",
       "notification": {
-        "Timestamp": "2025-09-29T10:45:15Z",
-        "ContainerApp": "container-app-1",
-        "Action": "RESTART",
-        "Status": "FAILURE",
-        "Message": "Failed to restart container: Container app 'container-app-1' not found",
-        "QueueName": ""
+        "to": "ops-team@example.com",
+        "subject": "Container Restart: FAILURE - container-app-1",
+        "message": "Failed to restart container 'container-app-1'.\n\nError: Container app 'container-app-1' not found\n\nTimestamp: 2025-09-30 10:45:15 UTC"
       }
     },
     {
       "scenario": "Successful container stop (idle timeout)",
       "notification": {
-        "Timestamp": "2025-09-29T11:00:00Z",
-        "ContainerApp": "container-app-1",
-        "Action": "STOP",
-        "Status": "SUCCESS",
-        "Message": "Container stopped due to idle queues: queue.app1.requests, queue.app1.events",
-        "QueueName": "queue.app1.requests, queue.app1.events"
+        "to": "ops-team@example.com",
+        "subject": "Container Stop: SUCCESS - container-app-1",
+        "message": "Container 'container-app-1' stopped due to idle queues.\n\nIdle queues: queue.app1.requests, queue.app1.events\n\nTimestamp: 2025-09-30 11:00:00 UTC"
       }
     },
     {
       "scenario": "Failed container stop",
       "notification": {
-        "Timestamp": "2025-09-29T11:05:20Z",
-        "ContainerApp": "container-app-2",
-        "Action": "STOP",
-        "Status": "FAILURE",
-        "Message": "Failed to stop container: Azure API throttling",
-        "QueueName": "queue.app2.requests"
+        "to": "ops-team@example.com",
+        "subject": "Container Stop: FAILURE - container-app-2",
+        "message": "Failed to stop container 'container-app-2'.\n\nError: Azure API throttling\n\nTimestamp: 2025-09-30 11:05:20 UTC"
       }
     }
   ],
   "fields": {
-    "Timestamp": "ISO 8601 timestamp when the notification was generated",
-    "ContainerApp": "Name of the Azure Container App",
-    "Action": "RESTART or STOP",
-    "Status": "SUCCESS, WARNING, or FAILURE",
-    "Message": "Human-readable description of the action result",
-    "QueueName": "Comma-separated list of queue names involved (empty on failure)"
+    "to": "Email recipient(s) - can be semicolon or comma-separated for multiple recipients",
+    "subject": "Email subject line containing action type, status, and container name",
+    "message": "Email body with detailed information including queues, error messages, and timestamp"
+  },
+  "message_format": {
+    "subject_pattern": "{Action}: {Status} - {ContainerApp}",
+    "actions": ["Container Restart", "Container Stop"],
+    "statuses": ["SUCCESS", "WARNING", "FAILURE"],
+    "body_sections": [
+      "Primary message describing the action result",
+      "Relevant queue names or error details",
+      "UTC timestamp when the notification was generated"
+    ]
   },
   "monitoring": {
     "description": "How to monitor notifications in your environment",
@@ -76,7 +68,7 @@
           "2. Navigate to Queues",
           "3. Find NOTIFICATION.QUEUE",
           "4. Browse messages",
-          "5. View message content (JSON)"
+          "5. View message content (JSON with 'to', 'subject', 'message' fields)"
         ]
       },
       {
@@ -93,8 +85,8 @@
         ]
       },
       {
-        "tool": "Custom Consumer",
-        "description": "Create a simple consumer application to monitor notifications in real-time",
+        "tool": "Email Consumer",
+        "description": "Create a consumer application to read EmailMessage notifications and send actual emails",
         "pseudo_code": [
           "connection = connect_to_ems()",
           "session = connection.create_session()",
@@ -103,19 +95,29 @@
           "",
           "while true:",
           "  message = consumer.receive()",
-          "  notification = json.parse(message.text)",
-          "  log(notification)",
-          "  alert_if_failure(notification)"
+          "  email_notification = json.parse(message.text)",
+          "  send_email(",
+          "    to=email_notification['to'],",
+          "    subject=email_notification['subject'],",
+          "    body=email_notification['message']",
+          "  )",
+          "  log('Email sent to ' + email_notification['to'])"
         ]
       }
     ]
   },
   "alerting": {
     "recommendations": [
-      "Set up alerts for FAILURE status notifications",
-      "Monitor WARNING status for containers not starting properly",
-      "Track SUCCESS notifications to verify service is operating",
-      "Set up dashboard to visualize notification trends"
+      "Set up email consumer to forward notifications to actual email addresses",
+      "Configure email alerts for messages containing 'FAILURE' in subject",
+      "Monitor WARNING status for containers not starting properly after restart",
+      "Track SUCCESS notifications to verify service is operating correctly",
+      "Set up dashboard to visualize notification trends by parsing subject lines"
     ]
+  },
+  "integration_notes": {
+    "breaking_change": "This format replaces the previous NotificationMessage format (Timestamp, ContainerApp, Action, Status, Message, QueueName fields)",
+    "migration": "If you have existing consumers expecting the old format, you'll need to update them to parse the new EmailMessage format",
+    "backward_compatibility": "None - this is a breaking change from the previous notification schema"
   }
 }

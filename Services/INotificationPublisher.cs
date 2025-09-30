@@ -4,5 +4,5 @@ namespace ContainerManager.Service.Services;
 
 public interface INotificationPublisher
 {
-    Task PublishAsync(NotificationMessage message, CancellationToken cancellationToken = default);
+    Task PublishAsync(EmailMessage message, CancellationToken cancellationToken = default);
 }

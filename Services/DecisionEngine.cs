@@ -73,22 +73,8 @@ public class DecisionEngine : IDecisionEngine
 
     private ContainerAction DecideActionForContainer(string containerApp, List<QueueInfo> queues)
     {
-        // Rule 1: Check if ANY queue has messages without receivers → RESTART
-        foreach (var queue in queues)
-        {
-            if (queue.PendingMessageCount > 0 && queue.ReceiverCount == 0)
-            {
-                _logger.LogInformation(
-                    "Queue {QueueName} has {MessageCount} messages with no receivers → Restart {ContainerApp}",
-                    queue.Name, queue.PendingMessageCount, containerApp);
-
-                // Clear idle states since we're taking action
-                ClearIdleStates(queues);
-                return ContainerAction.Restart;
-            }
-        }
-
-        // Rule 2: Check if ANY queue has messages WITH receivers → Do nothing (working normally)
+        // Rule 1: Check if ANY queue has messages WITH receivers → Do nothing (working normally)
+        // This rule runs FIRST to protect active message processing from interruption
         foreach (var queue in queues)
         {
             if (queue.PendingMessageCount > 0 && queue.ReceiverCount > 0)
@@ -100,6 +86,22 @@ public class DecisionEngine : IDecisionEngine
                 // Clear idle states since there's activity
                 ClearIdleStates(queues);
                 return ContainerAction.None;
+            }
+        }
+
+        // Rule 2: Check if ANY queue has messages without receivers → RESTART
+        // Only runs if no queues are actively processing (Rule 1 didn't return)
+        foreach (var queue in queues)
+        {
+            if (queue.PendingMessageCount > 0 && queue.ReceiverCount == 0)
+            {
+                _logger.LogInformation(
+                    "Queue {QueueName} has {MessageCount} messages with no receivers → Restart {ContainerApp}",
+                    queue.Name, queue.PendingMessageCount, containerApp);
+
+                // Clear idle states since we're taking action
+                ClearIdleStates(queues);
+                return ContainerAction.Restart;
             }
         }
 

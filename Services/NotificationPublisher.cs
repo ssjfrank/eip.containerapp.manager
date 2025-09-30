@@ -162,7 +162,7 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
         }
     }
 
-    public Task PublishAsync(NotificationMessage message, CancellationToken cancellationToken = default)
+    public Task PublishAsync(EmailMessage message, CancellationToken cancellationToken = default)
     {
         lock (_lock)
         {
@@ -184,8 +184,8 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                             DateTime.UtcNow - _lastInitAttempt.Value < INIT_RETRY_BACKOFF)
                         {
                             _logger.LogWarning(
-                                "Notification publisher not initialized and in backoff period, skipping notification for {ContainerApp}",
-                                message.ContainerApp);
+                                "Notification publisher not initialized and in backoff period, skipping notification to {ToEmail}",
+                                message.ToEmail);
                             return Task.CompletedTask;
                         }
                     }
@@ -209,15 +209,15 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                 _sender!.Send(textMessage);
 
                 _logger.LogInformation(
-                    "Published notification: Container={ContainerApp}, Action={Action}, Status={Status}",
-                    message.ContainerApp, message.Action, message.Status);
+                    "Published email notification: To={ToEmail}, Subject={Subject}",
+                    message.ToEmail, message.Subject);
 
                 // Reset failure counter on successful publish
                 _failedNotificationCount = 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to publish notification for container {ContainerApp}", message.ContainerApp);
+                _logger.LogError(ex, "Failed to publish email notification to {ToEmail}", message.ToEmail);
 
                 // Track consecutive failures
                 _failedNotificationCount++;

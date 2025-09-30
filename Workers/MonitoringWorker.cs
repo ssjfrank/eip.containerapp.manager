@@ -15,6 +15,7 @@ public class MonitoringWorker : BackgroundService
     private readonly IDecisionEngine _decisionEngine;
     private readonly IContainerManager _containerManager;
     private readonly INotificationPublisher _notificationPublisher;
+    private readonly string _notificationEmailRecipient;
     private readonly HashSet<string> _operationsInProgress = new();
     private readonly List<Task> _backgroundTasks = new();
     private readonly object _taskLock = new();
@@ -37,6 +38,7 @@ public class MonitoringWorker : BackgroundService
         _decisionEngine = decisionEngine;
         _containerManager = containerManager;
         _notificationPublisher = notificationPublisher;
+        _notificationEmailRecipient = _settings.NotificationEmailRecipient;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -284,13 +286,11 @@ public class MonitoringWorker : BackgroundService
             {
                 _logger.LogInformation("Container {ContainerApp} restarted successfully, receivers detected", containerApp);
 
-                await _notificationPublisher.PublishAsync(new NotificationMessage
+                await _notificationPublisher.PublishAsync(new EmailMessage
                 {
-                    ContainerApp = containerApp,
-                    Action = "RESTART",
-                    Status = "SUCCESS",
-                    Message = $"Container restarted successfully, receivers detected on queues: {string.Join(", ", queueNames)}",
-                    QueueName = string.Join(", ", queueNames)
+                    ToEmail = _notificationEmailRecipient,
+                    Subject = $"Container Restart: SUCCESS - {containerApp}",
+                    Body = $"Container '{containerApp}' restarted successfully.\n\nReceivers detected on queues: {string.Join(", ", queueNames)}\n\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
                 }, cancellationToken);
             }
             else
@@ -298,13 +298,11 @@ public class MonitoringWorker : BackgroundService
                 _logger.LogWarning("Container {ContainerApp} restarted but no receivers detected after {Timeout}",
                     containerApp, timeout);
 
-                await _notificationPublisher.PublishAsync(new NotificationMessage
+                await _notificationPublisher.PublishAsync(new EmailMessage
                 {
-                    ContainerApp = containerApp,
-                    Action = "RESTART",
-                    Status = "WARNING",
-                    Message = $"Container restarted but no receivers detected after {timeout.TotalMinutes} minutes",
-                    QueueName = string.Join(", ", queueNames)
+                    ToEmail = _notificationEmailRecipient,
+                    Subject = $"Container Restart: WARNING - {containerApp}",
+                    Body = $"Container '{containerApp}' restarted but no receivers detected after {timeout.TotalMinutes} minutes.\n\nQueues: {string.Join(", ", queueNames)}\n\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
                 }, cancellationToken);
             }
         }
@@ -312,13 +310,11 @@ public class MonitoringWorker : BackgroundService
         {
             _logger.LogError(ex, "Failed to restart container {ContainerApp}", containerApp);
 
-            await _notificationPublisher.PublishAsync(new NotificationMessage
+            await _notificationPublisher.PublishAsync(new EmailMessage
             {
-                ContainerApp = containerApp,
-                Action = "RESTART",
-                Status = "FAILURE",
-                Message = $"Failed to restart container: {ex.Message}",
-                QueueName = string.Empty
+                ToEmail = _notificationEmailRecipient,
+                Subject = $"Container Restart: FAILURE - {containerApp}",
+                Body = $"Failed to restart container '{containerApp}'.\n\nError: {ex.Message}\n\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
             }, cancellationToken);
         }
     }
@@ -335,26 +331,22 @@ public class MonitoringWorker : BackgroundService
 
             _logger.LogInformation("Container {ContainerApp} stopped successfully due to idle queues", containerApp);
 
-            await _notificationPublisher.PublishAsync(new NotificationMessage
+            await _notificationPublisher.PublishAsync(new EmailMessage
             {
-                ContainerApp = containerApp,
-                Action = "STOP",
-                Status = "SUCCESS",
-                Message = $"Container stopped due to idle queues: {string.Join(", ", queueNames)}",
-                QueueName = string.Join(", ", queueNames)
+                ToEmail = _notificationEmailRecipient,
+                Subject = $"Container Stop: SUCCESS - {containerApp}",
+                Body = $"Container '{containerApp}' stopped due to idle queues.\n\nIdle queues: {string.Join(", ", queueNames)}\n\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
             }, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to stop container {ContainerApp}", containerApp);
 
-            await _notificationPublisher.PublishAsync(new NotificationMessage
+            await _notificationPublisher.PublishAsync(new EmailMessage
             {
-                ContainerApp = containerApp,
-                Action = "STOP",
-                Status = "FAILURE",
-                Message = $"Failed to stop container: {ex.Message}",
-                QueueName = string.Empty
+                ToEmail = _notificationEmailRecipient,
+                Subject = $"Container Stop: FAILURE - {containerApp}",
+                Body = $"Failed to stop container '{containerApp}'.\n\nError: {ex.Message}\n\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
             }, cancellationToken);
         }
     }

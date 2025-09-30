@@ -20,8 +20,29 @@ public class ManagerSettings : IValidatableObject
     [MinLength(1, ErrorMessage = "At least one queue-container mapping is required")]
     public Dictionary<string, List<string>> QueueContainerMappings { get; set; } = new();
 
+    [Required(ErrorMessage = "NotificationEmailRecipient is required")]
+    public string NotificationEmailRecipient { get; set; } = string.Empty;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
+        // Validate NotificationEmailRecipient (supports semicolon or comma-separated list)
+        if (!string.IsNullOrWhiteSpace(NotificationEmailRecipient))
+        {
+            var emails = NotificationEmailRecipient.Split(new[] { ";", "," }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(e => e.Trim())
+                .Where(e => !string.IsNullOrWhiteSpace(e));
+
+            foreach (var email in emails)
+            {
+                if (!IsValidEmail(email))
+                {
+                    yield return new ValidationResult(
+                        $"Invalid email format in NotificationEmailRecipient: {email}",
+                        new[] { nameof(NotificationEmailRecipient) });
+                }
+            }
+        }
+
         foreach (var mapping in QueueContainerMappings)
         {
             if (string.IsNullOrWhiteSpace(mapping.Key))
@@ -46,5 +67,11 @@ public class ManagerSettings : IValidatableObject
                     new[] { nameof(QueueContainerMappings) });
             }
         }
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        const string emailPattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
+        return System.Text.RegularExpressions.Regex.IsMatch(email, emailPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 }
