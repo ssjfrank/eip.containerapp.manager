@@ -78,7 +78,8 @@ public class EmsQueueMonitor : IEmsQueueMonitor, IDisposable
             }
 
             // Initialize admin connection (synchronous TIBCO API)
-            var admin = new Admin(_settings.ServerUrl, _settings.Username, _settings.Password);
+            var admin = new Admin(_settings.ServerUrl, _settings.Username, _settings.Password, environment);
+            admin.AutoSave = true;
 
             // Create factory with SSL environment if configured
             var factory = _settings.IsSSL

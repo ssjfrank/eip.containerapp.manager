@@ -1,3 +1,4 @@
+using Azure;
 using Azure.Core;
 using Azure.Identity;
 using Azure.ResourceManager;
@@ -37,8 +38,11 @@ public class ContainerManager : IContainerManager
             _logger.LogInformation("Initializing Azure Container Apps client with user-assigned managed identity {ClientId}",
                 _azureSettings.ManagedIdentityClientId);
 
-            // Use user-assigned managed identity
-            var credential = new ManagedIdentityCredential(_azureSettings.ManagedIdentityClientId);
+            // Use DefaultAzureCredential which works both locally and in Azure
+            var credential = new DefaultAzureCredential(new DefaultAzureCredentialOptions
+            {
+                ManagedIdentityClientId = _azureSettings.ManagedIdentityClientId
+            });
 
             _armClient = new ArmClient(credential, _azureSettings.SubscriptionId);
 
@@ -69,35 +73,26 @@ public class ContainerManager : IContainerManager
 
             _logger.LogInformation("Restarting container app {ContainerAppName}", containerAppName);
 
-            var containerApp = await _containerApps!.GetAsync(containerAppName, cancellationToken);
+            // Get the container app resource
+            var containerAppResourceId = ContainerAppResource.CreateResourceIdentifier(
+                _azureSettings.SubscriptionId,
+                _azureSettings.ResourceGroupName,
+                containerAppName);
 
-            // Save original replica count before any modifications
-            var originalMaxReplicas = containerApp.Value.Data.Template.Scale?.MaxReplicas ?? 1;
+            var containerApp = _armClient.GetContainerAppResource(containerAppResourceId);
 
-            // Scale to 0
-            var containerAppResource = containerApp.Value;
-            var scaleDownData = containerAppResource.Data;
-            scaleDownData.Template.Scale ??= new Azure.ResourceManager.AppContainers.Models.ContainerAppScale();
-            scaleDownData.Template.Scale.MinReplicas = 0;
-            scaleDownData.Template.Scale.MaxReplicas = 0;
+            // Stop the container app
+            _logger.LogInformation("Stopping container app {ContainerAppName}", containerAppName);
+            await containerApp.StopAsync(WaitUntil.Completed, cancellationToken);
+            _logger.LogInformation("Container app {ContainerAppName} stopped", containerAppName);
 
-            await containerAppResource.UpdateAsync(Azure.WaitUntil.Completed, scaleDownData, cancellationToken);
-            _logger.LogInformation("Container app {ContainerAppName} scaled to 0", containerAppName);
+            // Wait for Azure Resource Manager to propagate changes
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
 
-            // Wait for Azure Resource Manager to propagate changes (eventual consistency)
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogInformation("Restart operation cancelled during ARM propagation delay for {ContainerAppName}", containerAppName);
-                throw;
-            }
-
-            // Configurable delay between scale down and up
+            // Configurable delay between stop and start
             var restartDelay = TimeSpan.FromSeconds(_managerSettings.RestartDelaySeconds);
-            _logger.LogDebug("Waiting {RestartDelay} before scaling back up", restartDelay);
+            _logger.LogDebug("Waiting {RestartDelay} before starting back up", restartDelay);
+
             try
             {
                 await Task.Delay(restartDelay, cancellationToken);
@@ -108,19 +103,15 @@ public class ContainerManager : IContainerManager
                 throw;
             }
 
-            // Scale back up - use the original MaxReplicas we saved before modifications
-            containerApp = await _containerApps!.GetAsync(containerAppName, cancellationToken);
-            var scaleUpData = containerApp.Value.Data;
-            scaleUpData.Template.Scale ??= new Azure.ResourceManager.AppContainers.Models.ContainerAppScale();
-
-            scaleUpData.Template.Scale.MinReplicas = 1;
-            scaleUpData.Template.Scale.MaxReplicas = originalMaxReplicas;
-
-            _logger.LogInformation("Scaling up container app {ContainerAppName} with MaxReplicas={MaxReplicas}",
-                containerAppName, originalMaxReplicas);
-
-            await containerApp.Value.UpdateAsync(Azure.WaitUntil.Completed, scaleUpData, cancellationToken);
+            // Start the container app
+            _logger.LogInformation("Starting container app {ContainerAppName}", containerAppName);
+            await containerApp.StartAsync(WaitUntil.Completed, cancellationToken);
             _logger.LogInformation("Container app {ContainerAppName} restarted successfully", containerAppName);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogInformation("Restart operation cancelled for {ContainerAppName}", containerAppName);
+            throw;
         }
         catch (Exception ex)
         {
@@ -141,14 +132,10 @@ public class ContainerManager : IContainerManager
             _logger.LogInformation("Stopping container app {ContainerAppName}", containerAppName);
 
             var containerApp = await _containerApps!.GetAsync(containerAppName, cancellationToken);
-            var data = containerApp.Value.Data;
 
-            // Scale to 0
-            data.Template.Scale ??= new Azure.ResourceManager.AppContainers.Models.ContainerAppScale();
-            data.Template.Scale.MinReplicas = 0;
-            data.Template.Scale.MaxReplicas = 0;
+            // Use the proper Stop method instead of scaling to 0
+            await containerApp.Value.StopAsync(WaitUntil.Completed, cancellationToken);
 
-            await containerApp.Value.UpdateAsync(Azure.WaitUntil.Completed, data, cancellationToken);
             _logger.LogInformation("Container app {ContainerAppName} stopped successfully", containerAppName);
         }
         catch (Exception ex)
