@@ -1,0 +1,30 @@
+version: '3.8'
+
+# Override configuration for testing
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+
+services:
+  container-manager:
+    # Override environment variables for testing
+    environment:
+      # Enable debug logging
+      - Serilog__MinimumLevel__Default=Debug
+
+      # Short timeouts for faster testing
+      - ManagerSettings__PollingIntervalSeconds=10
+      - ManagerSettings__IdleTimeoutMinutes=2
+      - ManagerSettings__RestartVerificationTimeoutMinutes=3
+
+      # Optional: Override other settings
+      # - ManagerSettings__RestartDelaySeconds=3
+
+    # Additional volume mounts for test data
+    volumes:
+      - ./test-data:/app/test-data:ro
+
+    # Override health check for faster testing feedback
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

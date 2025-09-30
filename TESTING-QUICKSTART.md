@@ -5,31 +5,58 @@ Get started testing ContainerManager.Service in 5 minutes.
 ## Prerequisites
 
 - [x] Docker Desktop running
+- [x] Docker network `aimco-shared` exists
 - [x] EMS server accessible
 - [x] Azure Container Apps deployed
 - [x] Credentials ready
 
 ## Quick Setup
 
-### 1. Configure Testing Environment
+### Option A: Docker Compose (Recommended)
+
+**Fastest way to get started!**
 
 ```bash
-# Copy configuration template
-cp appsettings.json appsettings.test.json
+# 1. Run setup script (creates .env, builds image, starts service)
+./setup-test-env.sh
 ```
 
-Edit `appsettings.test.json` with your actual values:
-- EMS ServerUrl, Username, Password
-- Azure SubscriptionId, ResourceGroupName, credentials
-- QueueContainerMappings (your actual container and queue names)
+The script will:
+- Create `.env` from `.env.example` if needed
+- Build Docker image
+- Ask if you want test mode (debug logging, short timeouts)
+- Start services
+- Show status and logs
 
-### 2. Run Automated Tests
+**Manual Docker Compose:**
 
 ```bash
-# Make script executable
-chmod +x test-runner.sh
+# 1. Configure environment
+cp .env.example .env
+nano .env  # Edit with your values
 
-# Run all tests
+# 2. Start service (production mode)
+docker-compose up -d
+
+# 3. Or start in test mode (debug logging, short timeouts)
+docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d
+
+# 4. View logs
+docker-compose logs -f
+
+# 5. Stop service
+docker-compose down
+```
+
+### Option B: Standalone Docker (Alternative)
+
+```bash
+# 1. Copy configuration template
+cp appsettings.json appsettings.test.json
+nano appsettings.test.json  # Edit with your values
+
+# 2. Run automated tests
+chmod +x test-runner.sh
 ./test-runner.sh all
 ```
 
@@ -70,37 +97,90 @@ Press `Ctrl+C` to stop.
 ### Scenario 3: Check Notifications
 Browse `NOTIFICATION.QUEUE` in EMS to see operation notifications.
 
+## Docker Compose Commands
+
+### Common Operations
+```bash
+# View status
+docker-compose ps
+
+# View logs (live)
+docker-compose logs -f
+
+# View logs (last 50 lines)
+docker-compose logs --tail=50
+
+# Restart service
+docker-compose restart
+
+# Rebuild and restart
+docker-compose up -d --build
+
+# Stop service
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
+```
+
+### Testing Mode
+```bash
+# Start with debug logging and short timeouts
+docker-compose -f docker-compose.yml -f docker-compose.test.yml up -d
+
+# View test mode logs
+docker-compose -f docker-compose.yml -f docker-compose.test.yml logs -f
+```
+
 ## Troubleshooting
 
 ### Container Won't Start
 ```bash
-# Check logs
+# Docker Compose: Check logs
+docker-compose logs container-manager
+
+# Standalone: Check logs
 docker logs cm-test
 
 # Common issues:
-# - Invalid configuration (check appsettings.test.json)
+# - Invalid configuration (check .env or appsettings.test.json)
 # - EMS connection failed (check ServerUrl, credentials)
 # - Azure auth failed (check SubscriptionId, credentials)
 ```
 
+### Network Not Found
+```bash
+# Check if aimco-shared network exists
+docker network ls | grep aimco-shared
+
+# Create network if missing
+docker network create aimco-shared
+```
+
 ### Can't Connect to EMS from Docker
 ```bash
-# If EMS is on localhost, use:
-"ServerUrl": "tcp://host.docker.internal:7222"
+# If EMS is on localhost, use in .env:
+EmsSettings__ServerUrl=tcp://host.docker.internal:7222
 
-# Or run with host networking:
-docker run --network host ...
+# Or check network connectivity
+docker-compose exec container-manager ping your-ems-host
 ```
 
 ### Configuration Validation Failed
-- Ensure all required fields populated
-- Check JSON syntax is valid
-- Verify at least one QueueContainerMapping exists
+- Ensure all required fields populated in `.env`
+- Check environment variable format (double underscore: `Section__Key`)
+- Verify QueueContainerMappings is valid JSON format
+- Check .env file syntax (no quotes around values unless needed)
 
 ## Full Documentation
 
+- **Docker Compose setup:** `docker-compose.yml`, `docker-compose.test.yml`
+- **Environment config:** `.env.example`
+- **Setup automation:** `setup-test-env.sh`
+- **Test scenarios:** `test-data/test-scenarios.md`
+- **Sample data:** `test-data/sample-ems-messages.json`, `test-data/sample-notifications.json`
 - **Complete testing guide:** `TEST-GUIDE.md`
-- **Test automation script:** `test-runner.sh`
+- **Standalone test script:** `test-runner.sh`
 - **Change log:** `CHANGELOG.md`
 - **Architecture:** `CLAUDE.md`
 - **User guide:** `README.md`

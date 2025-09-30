@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  container-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: container-manager:latest
+    container_name: container-manager-service
+    restart: unless-stopped
+
+    # Environment variables from .env file
+    env_file:
+      - .env
+
+    # Volume mounts
+    volumes:
+      - ./logs:/app/logs
+      - ./appsettings.json:/app/appsettings.json:ro
+
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'dotnet.*ContainerManager.Service.dll' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Use existing external network
+    networks:
+      - aimco-shared
+
+# External network (must already exist)
+networks:
+  aimco-shared:
+    external: true

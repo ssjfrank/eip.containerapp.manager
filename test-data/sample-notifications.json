@@ -1,0 +1,121 @@
+{
+  "description": "Sample notification messages published to NOTIFICATION.QUEUE",
+  "format": "JSON",
+  "examples": [
+    {
+      "scenario": "Successful container restart",
+      "notification": {
+        "Timestamp": "2025-09-29T10:35:45Z",
+        "ContainerApp": "container-app-1",
+        "Action": "RESTART",
+        "Status": "SUCCESS",
+        "Message": "Container restarted successfully, receivers detected on queues: queue.app1.requests, queue.app1.events",
+        "QueueName": "queue.app1.requests, queue.app1.events"
+      }
+    },
+    {
+      "scenario": "Container restart with warning (no receivers after restart)",
+      "notification": {
+        "Timestamp": "2025-09-29T10:40:30Z",
+        "ContainerApp": "container-app-2",
+        "Action": "RESTART",
+        "Status": "WARNING",
+        "Message": "Container restarted but no receivers detected after 5 minutes",
+        "QueueName": "queue.app2.requests"
+      }
+    },
+    {
+      "scenario": "Failed container restart",
+      "notification": {
+        "Timestamp": "2025-09-29T10:45:15Z",
+        "ContainerApp": "container-app-1",
+        "Action": "RESTART",
+        "Status": "FAILURE",
+        "Message": "Failed to restart container: Container app 'container-app-1' not found",
+        "QueueName": ""
+      }
+    },
+    {
+      "scenario": "Successful container stop (idle timeout)",
+      "notification": {
+        "Timestamp": "2025-09-29T11:00:00Z",
+        "ContainerApp": "container-app-1",
+        "Action": "STOP",
+        "Status": "SUCCESS",
+        "Message": "Container stopped due to idle queues: queue.app1.requests, queue.app1.events",
+        "QueueName": "queue.app1.requests, queue.app1.events"
+      }
+    },
+    {
+      "scenario": "Failed container stop",
+      "notification": {
+        "Timestamp": "2025-09-29T11:05:20Z",
+        "ContainerApp": "container-app-2",
+        "Action": "STOP",
+        "Status": "FAILURE",
+        "Message": "Failed to stop container: Azure API throttling",
+        "QueueName": "queue.app2.requests"
+      }
+    }
+  ],
+  "fields": {
+    "Timestamp": "ISO 8601 timestamp when the notification was generated",
+    "ContainerApp": "Name of the Azure Container App",
+    "Action": "RESTART or STOP",
+    "Status": "SUCCESS, WARNING, or FAILURE",
+    "Message": "Human-readable description of the action result",
+    "QueueName": "Comma-separated list of queue names involved (empty on failure)"
+  },
+  "monitoring": {
+    "description": "How to monitor notifications in your environment",
+    "methods": [
+      {
+        "tool": "TIBCO EMS Console",
+        "steps": [
+          "1. Open EMS Console",
+          "2. Navigate to Queues",
+          "3. Find NOTIFICATION.QUEUE",
+          "4. Browse messages",
+          "5. View message content (JSON)"
+        ]
+      },
+      {
+        "tool": "tibjmsadmin CLI",
+        "commands": [
+          "# Connect to EMS",
+          "tibjmsadmin -server tcp://localhost:7222 -user admin -password admin",
+          "",
+          "# Show queue info",
+          "show queue NOTIFICATION.QUEUE",
+          "",
+          "# Browse messages",
+          "browse NOTIFICATION.QUEUE"
+        ]
+      },
+      {
+        "tool": "Custom Consumer",
+        "description": "Create a simple consumer application to monitor notifications in real-time",
+        "pseudo_code": [
+          "connection = connect_to_ems()",
+          "session = connection.create_session()",
+          "queue = session.get_queue('NOTIFICATION.QUEUE')",
+          "consumer = session.create_consumer(queue)",
+          "",
+          "while true:",
+          "  message = consumer.receive()",
+          "  notification = json.parse(message.text)",
+          "  log(notification)",
+          "  alert_if_failure(notification)"
+        ]
+      }
+    ]
+  },
+  "alerting": {
+    "recommendations": [
+      "Set up alerts for FAILURE status notifications",
+      "Monitor WARNING status for containers not starting properly",
+      "Track SUCCESS notifications to verify service is operating",
+      "Set up dashboard to visualize notification trends"
+    ]
+  }
+}
