@@ -1,3 +1,4 @@
+using System.Collections;
 using ContainerManager.Service.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -66,11 +67,23 @@ public class EmsQueueMonitor : IEmsQueueMonitor, IDisposable
     {
         try
         {
-            _logger.LogInformation("Initializing EMS connection to {ServerUrl}", _settings.ServerUrl);
+            _logger.LogInformation("Initializing EMS connection to {ServerUrl} (SSL: {IsSSL})",
+                _settings.ServerUrl, _settings.IsSSL);
+
+            // Setup SSL environment if needed
+            var environment = new Hashtable();
+            if (_settings.IsSSL)
+            {
+                SetupSslEnvironment(environment);
+            }
 
             // Initialize admin connection (synchronous TIBCO API)
             var admin = new Admin(_settings.ServerUrl, _settings.Username, _settings.Password);
-            var factory = new QueueConnectionFactory(_settings.ServerUrl);
+
+            // Create factory with SSL environment if configured
+            var factory = _settings.IsSSL
+                ? new QueueConnectionFactory(_settings.ServerUrl, null, environment)
+                : new QueueConnectionFactory(_settings.ServerUrl);
 
             lock (_connectionLock)
             {
@@ -79,7 +92,7 @@ public class EmsQueueMonitor : IEmsQueueMonitor, IDisposable
                 _isConnected = true;
             }
 
-            _logger.LogInformation("EMS connection initialized successfully");
+            _logger.LogInformation("EMS connection initialized successfully (SSL: {IsSSL})", _settings.IsSSL);
             await Task.CompletedTask;
         }
         catch (Exception ex)
@@ -91,6 +104,71 @@ public class EmsQueueMonitor : IEmsQueueMonitor, IDisposable
                 _isConnected = false;
             }
 
+            throw;
+        }
+    }
+
+    private void SetupSslEnvironment(Hashtable environment)
+    {
+        try
+        {
+            _logger.LogDebug("Configuring SSL for EMS connection");
+
+            var storeInfo = new EMSSSLFileStoreInfo();
+
+            // Enable SSL trace if requested
+            if (_settings.SslTrace)
+            {
+                _logger.LogDebug("SSL tracing enabled");
+                environment.Add(EMSSSL.TRACE, true);
+            }
+
+            // Set SSL target hostname if specified
+            if (!string.IsNullOrEmpty(_settings.SslTargetHostName))
+            {
+                _logger.LogDebug("Setting SSL target hostname: {TargetHostName}", _settings.SslTargetHostName);
+                environment.Add(EMSSSL.TARGET_HOST_NAME, _settings.SslTargetHostName);
+            }
+
+            // Configure certificate verification warnings
+            if (!_settings.VerifyServerCertificate)
+            {
+                _logger.LogWarning("SSL server certificate verification is DISABLED - only use for testing!");
+            }
+
+            if (!_settings.VerifyHostName)
+            {
+                _logger.LogWarning("SSL hostname verification is DISABLED - only use for testing!");
+            }
+
+            // Configure trust store if provided
+            if (!string.IsNullOrEmpty(_settings.TrustStorePath))
+            {
+                _logger.LogDebug("Configuring trust store: {TrustStorePath}", _settings.TrustStorePath);
+                storeInfo.SetSSLTrustedCertificate(_settings.TrustStorePath);
+            }
+
+            // Configure client certificate if provided
+            if (!string.IsNullOrEmpty(_settings.ClientCertificatePath))
+            {
+                _logger.LogDebug("Configuring client certificate: {CertPath}", _settings.ClientCertificatePath);
+                storeInfo.SetSSLClientIdentity(_settings.ClientCertificatePath);
+
+                if (!string.IsNullOrEmpty(_settings.ClientCertificatePassword))
+                {
+                    storeInfo.SetSSLPassword(_settings.ClientCertificatePassword.ToCharArray());
+                }
+            }
+
+            // Add store info and type to environment
+            environment.Add(EMSSSL.STORE_INFO, storeInfo);
+            environment.Add(EMSSSL.STORE_TYPE, EMSSSLStoreType.EMSSSL_STORE_TYPE_FILE);
+
+            _logger.LogDebug("SSL configuration completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error configuring SSL");
             throw;
         }
     }

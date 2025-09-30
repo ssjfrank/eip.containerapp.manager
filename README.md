@@ -82,18 +82,21 @@ Container state is determined by queue receivers:
     }
   },
   "EmsSettings": {
-    "ServerUrl": "tcp://ems-server:7222",
+    "ServerUrl": "tcp://ems-server:7222",  // or "ssl://ems-server:7243" for SSL
     "Username": "admin",
     "Password": "your-password",
-    "NotificationQueueName": "NOTIFICATION.QUEUE"
+    "NotificationQueueName": "NOTIFICATION.QUEUE",
+    // Optional SSL configuration (only used with ssl:// protocol)
+    "SslTargetHostName": "ems-server.example.com",
+    "ClientCertificatePath": "/path/to/client-cert.p12",
+    "TrustStorePath": "/path/to/truststore.jks",
+    "VerifyHostName": true,
+    "VerifyServerCertificate": true
   },
   "AzureSettings": {
     "SubscriptionId": "your-subscription-id",
     "ResourceGroupName": "your-resource-group",
-    "UseManagedIdentity": true,
-    "TenantId": "",
-    "ClientId": "",
-    "ClientSecret": ""
+    "ManagedIdentityClientId": "your-managed-identity-client-id"
   },
   "EnableHealthChecks": false
 }
@@ -116,8 +119,7 @@ Container state is determined by queue receivers:
 #### AzureSettings
 - **SubscriptionId**: Azure subscription ID
 - **ResourceGroupName**: Resource group containing Container Apps
-- **UseManagedIdentity**: Use Managed Identity for authentication (recommended for Azure)
-- **TenantId/ClientId/ClientSecret**: Service Principal credentials (if not using Managed Identity)
+- **ManagedIdentityClientId**: Client ID of the user-assigned managed identity (required)
 
 ## Deployment
 
@@ -125,7 +127,7 @@ Container state is determined by queue receivers:
 - .NET 8.0 SDK
 - Access to TIBCO EMS server
 - Access to Azure Container Apps
-- Azure credentials (Managed Identity or Service Principal)
+- User-assigned managed identity with appropriate permissions
 
 ### Build
 

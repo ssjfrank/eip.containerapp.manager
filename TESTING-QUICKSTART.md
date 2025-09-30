@@ -161,9 +161,15 @@ docker network create aimco-shared
 ```bash
 # If EMS is on localhost, use in .env:
 EmsSettings__ServerUrl=tcp://host.docker.internal:7222
+# Or for SSL:
+EmsSettings__ServerUrl=ssl://host.docker.internal:7243
 
 # Or check network connectivity
 docker-compose exec container-manager ping your-ems-host
+
+# For SSL issues, enable debug logging:
+EmsSettings__SslTrace=true
+Serilog__MinimumLevel__Default=Debug
 ```
 
 ### Configuration Validation Failed

@@ -126,19 +126,30 @@ nano .env  # Edit with your values
 
 **Required variables:**
 ```env
-# EMS Settings
+# EMS Settings (TCP)
 EmsSettings__ServerUrl=tcp://your-ems-host:7222
 EmsSettings__Username=admin
 EmsSettings__Password=your-password
 EmsSettings__NotificationQueueName=NOTIFICATION.QUEUE
 
+# EMS Settings (SSL) - Use ssl:// instead of tcp://
+EmsSettings__ServerUrl=ssl://your-ems-host:7243
+EmsSettings__Username=admin
+EmsSettings__Password=your-password
+EmsSettings__NotificationQueueName=NOTIFICATION.QUEUE
+
+# Optional SSL Configuration
+EmsSettings__SslTargetHostName=your-ems-host.example.com
+EmsSettings__ClientCertificatePath=/path/to/client-cert.p12
+EmsSettings__ClientCertificatePassword=cert-password
+EmsSettings__TrustStorePath=/path/to/truststore.jks
+EmsSettings__VerifyHostName=true
+EmsSettings__VerifyServerCertificate=true
+
 # Azure Settings
 AzureSettings__SubscriptionId=your-subscription-id
 AzureSettings__ResourceGroupName=your-resource-group
-AzureSettings__UseManagedIdentity=false
-AzureSettings__TenantId=your-tenant-id
-AzureSettings__ClientId=your-client-id
-AzureSettings__ClientSecret=your-client-secret
+AzureSettings__ManagedIdentityClientId=your-managed-identity-client-id
 
 # Manager Settings
 ManagerSettings__QueueContainerMappings={"container-app-1": ["queue.1"]}
@@ -233,9 +244,31 @@ docker network ls
 ```bash
 # If EMS on localhost, use:
 EmsSettings__ServerUrl=tcp://host.docker.internal:7222
+# Or for SSL:
+EmsSettings__ServerUrl=ssl://host.docker.internal:7243
 
 # Test connectivity from container
 docker-compose exec container-manager ping your-ems-host
+```
+
+### SSL Connection Issues
+
+```bash
+# Enable SSL trace for debugging
+EmsSettings__SslTrace=true
+Serilog__MinimumLevel__Default=Debug
+
+# For testing with self-signed certificates
+EmsSettings__VerifyHostName=false
+EmsSettings__VerifyServerCertificate=false
+
+# Mount certificate files in docker-compose.yml
+volumes:
+  - ./certs:/certs:ro
+
+# Then reference in .env
+EmsSettings__ClientCertificatePath=/certs/client-cert.p12
+EmsSettings__TrustStorePath=/certs/truststore.jks
 ```
 
 ### Configuration validation failed

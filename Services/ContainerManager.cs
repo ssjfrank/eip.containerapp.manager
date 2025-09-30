@@ -34,28 +34,11 @@ public class ContainerManager : IContainerManager
     {
         try
         {
-            _logger.LogInformation("Initializing Azure Container Apps client");
+            _logger.LogInformation("Initializing Azure Container Apps client with user-assigned managed identity {ClientId}",
+                _azureSettings.ManagedIdentityClientId);
 
-            TokenCredential credential;
-            if (_azureSettings.UseManagedIdentity)
-            {
-                credential = new DefaultAzureCredential();
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(_azureSettings.TenantId) ||
-                    string.IsNullOrWhiteSpace(_azureSettings.ClientId) ||
-                    string.IsNullOrWhiteSpace(_azureSettings.ClientSecret))
-                {
-                    throw new InvalidOperationException(
-                        "When UseManagedIdentity is false, TenantId, ClientId, and ClientSecret must be provided");
-                }
-
-                credential = new ClientSecretCredential(
-                    _azureSettings.TenantId,
-                    _azureSettings.ClientId,
-                    _azureSettings.ClientSecret);
-            }
+            // Use user-assigned managed identity
+            var credential = new ManagedIdentityCredential(_azureSettings.ManagedIdentityClientId);
 
             _armClient = new ArmClient(credential, _azureSettings.SubscriptionId);
 
@@ -65,7 +48,8 @@ public class ContainerManager : IContainerManager
 
             _containerApps = resourceGroup.Value.GetContainerApps();
 
-            _logger.LogInformation("Azure Container Apps client initialized for subscription {SubscriptionId}", _azureSettings.SubscriptionId);
+            _logger.LogInformation("Azure Container Apps client initialized for subscription {SubscriptionId}, resource group {ResourceGroup}",
+                _azureSettings.SubscriptionId, _azureSettings.ResourceGroupName);
         }
         catch (Exception ex)
         {

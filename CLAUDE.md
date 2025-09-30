@@ -175,10 +175,7 @@ NotificationPublisher.PublishAsync → NOTIFICATION.QUEUE
   "AzureSettings": {
     "SubscriptionId": "your-sub-id",
     "ResourceGroupName": "your-rg",
-    "UseManagedIdentity": true,          // Recommended for Azure deployment
-    "TenantId": "",                      // Only if not using Managed Identity
-    "ClientId": "",
-    "ClientSecret": ""
+    "ManagedIdentityClientId": "your-managed-identity-client-id"
   }
 }
 ```
@@ -188,7 +185,7 @@ NotificationPublisher.PublishAsync → NOTIFICATION.QUEUE
 ### External Libraries
 - **TIBCO.EMS.dll** and **TIBCO.EMS.ADMIN.dll**: Located in `Libs/` directory, referenced directly (not NuGet)
 - **Azure.ResourceManager.AppContainers**: Azure Container Apps SDK
-- **Azure.Identity**: Azure authentication (Managed Identity / Service Principal)
+- **Azure.Identity**: Azure authentication (User-Assigned Managed Identity)
 - **Serilog**: Structured logging to console and file (`logs/container-manager-YYYYMMDD.txt`)
 
 ### Target Framework
@@ -263,7 +260,7 @@ The Dockerfile should follow multi-stage build pattern:
    - Create Dockerfile if not exists (see Dockerfile Structure above)
    - Configure `appsettings.json` with valid EMS and Azure credentials
    - Add queue-to-container mappings
-   - For local testing, consider using `UseManagedIdentity: false` with Service Principal
+   - Provide user-assigned managed identity client ID in AzureSettings
 
 3. **Build & Run**:
    ```bash

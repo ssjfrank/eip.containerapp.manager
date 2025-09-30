@@ -1,3 +1,4 @@
+using System.Collections;
 using ContainerManager.Service.Configuration;
 using ContainerManager.Service.Models;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,7 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
     private QueueConnection? _connection;
     private QueueSession? _session;
     private QueueSender? _sender;
-    private Queue? _queue;
+    private TIBCO.EMS.Queue? _queue;
     private DateTime? _lastInitAttempt;
     private int _initFailureCount = 0;
     private int _failedNotificationCount = 0;
@@ -47,6 +48,9 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
     {
         try
         {
+            _logger.LogInformation("Initializing notification publisher for queue {QueueName} (SSL: {IsSSL})",
+                _settings.NotificationQueueName, _settings.IsSSL);
+
             // Dispose old connections before creating new ones to prevent resource leak
             try
             {
@@ -59,14 +63,26 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                 _logger.LogWarning(closeEx, "Error closing previous connection during reconnect");
             }
 
-            _factory = new QueueConnectionFactory(_settings.ServerUrl);
+            // Setup SSL environment if needed
+            var environment = new Hashtable();
+            if (_settings.IsSSL)
+            {
+                SetupSslEnvironment(environment);
+            }
+
+            // Create factory with SSL environment if configured
+            _factory = _settings.IsSSL
+                ? new QueueConnectionFactory(_settings.ServerUrl, null, environment)
+                : new QueueConnectionFactory(_settings.ServerUrl);
+
             _connection = _factory.CreateQueueConnection(_settings.Username, _settings.Password);
             _session = _connection.CreateQueueSession(false, Session.AUTO_ACKNOWLEDGE);
             _queue = _session.CreateQueue(_settings.NotificationQueueName);
             _sender = _session.CreateSender(_queue);
             _connection.Start();
 
-            _logger.LogInformation("Notification publisher initialized for queue {QueueName}", _settings.NotificationQueueName);
+            _logger.LogInformation("Notification publisher initialized successfully for queue {QueueName} (SSL: {IsSSL})",
+                _settings.NotificationQueueName, _settings.IsSSL);
 
             // Reset failure count on successful connection
             _initFailureCount = 0;
@@ -77,6 +93,71 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
             _logger.LogError(ex, "Failed to initialize notification publisher");
             _lastInitAttempt = DateTime.UtcNow;
             _initFailureCount++;
+            throw;
+        }
+    }
+
+    private void SetupSslEnvironment(Hashtable environment)
+    {
+        try
+        {
+            _logger.LogDebug("Configuring SSL for notification publisher");
+
+            var storeInfo = new EMSSSLFileStoreInfo();
+
+            // Enable SSL trace if requested
+            if (_settings.SslTrace)
+            {
+                _logger.LogDebug("SSL tracing enabled");
+                environment.Add(EMSSSL.TRACE, true);
+            }
+
+            // Set SSL target hostname if specified
+            if (!string.IsNullOrEmpty(_settings.SslTargetHostName))
+            {
+                _logger.LogDebug("Setting SSL target hostname: {TargetHostName}", _settings.SslTargetHostName);
+                environment.Add(EMSSSL.TARGET_HOST_NAME, _settings.SslTargetHostName);
+            }
+
+            // Configure certificate verification warnings
+            if (!_settings.VerifyServerCertificate)
+            {
+                _logger.LogWarning("SSL server certificate verification is DISABLED - only use for testing!");
+            }
+
+            if (!_settings.VerifyHostName)
+            {
+                _logger.LogWarning("SSL hostname verification is DISABLED - only use for testing!");
+            }
+
+            // Configure trust store if provided
+            if (!string.IsNullOrEmpty(_settings.TrustStorePath))
+            {
+                _logger.LogDebug("Configuring trust store: {TrustStorePath}", _settings.TrustStorePath);
+                storeInfo.SetSSLTrustedCertificate(_settings.TrustStorePath);
+            }
+
+            // Configure client certificate if provided
+            if (!string.IsNullOrEmpty(_settings.ClientCertificatePath))
+            {
+                _logger.LogDebug("Configuring client certificate: {CertPath}", _settings.ClientCertificatePath);
+                storeInfo.SetSSLClientIdentity(_settings.ClientCertificatePath);
+
+                if (!string.IsNullOrEmpty(_settings.ClientCertificatePassword))
+                {
+                    storeInfo.SetSSLPassword(_settings.ClientCertificatePassword.ToCharArray());
+                }
+            }
+
+            // Add store info and type to environment
+            environment.Add(EMSSSL.STORE_INFO, storeInfo);
+            environment.Add(EMSSSL.STORE_TYPE, EMSSSLStoreType.EMSSSL_STORE_TYPE_FILE);
+
+            _logger.LogDebug("SSL configuration completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error configuring SSL");
             throw;
         }
     }
