@@ -35,36 +35,89 @@ ContainerManager.Service monitors TIBCO EMS queues and automatically manages Azu
 
 ## Business Rules
 
-### Rule 1: Restart Container
-**Condition:** Queue has messages (PendingMessageCount > 0) AND no receivers (ReceiverCount = 0)
+The decision engine evaluates queues in the following order to protect active message processing:
+
+### Rule 1: Protect Active Processing (NONE)
+**Condition:** ANY queue has messages WITH receivers (actively processing)
+
+**Action:** Do nothing - container is working normally
+
+**Rationale:** Never interrupt active message processing. If any queue is actively working, don't restart the container even if other queues appear stuck.
+
+### Rule 2: Restart Container (RESTART)
+**Condition:** NO queues are actively processing AND ANY queue has messages WITHOUT receivers (stuck)
 
 **Action:**
-1. Restart Azure Container App (scale to 0, then scale back up)
+1. Restart Azure Container App (Stop → Wait → Start)
 2. Wait up to 5 minutes for receivers to appear
-3. Publish notification:
+3. Publish email notification:
    - SUCCESS: If receivers detected
    - WARNING: If no receivers after 5 minutes
    - FAILURE: If restart operation failed
 
-### Rule 2: Stop Container
-**Condition:** Queue has no messages (PendingMessageCount = 0) for configurable timeout (default 10 minutes) AND has receivers (ReceiverCount > 0)
+**Rationale:** Messages are waiting but no consumers are connected. Container likely crashed or failed to start properly.
+
+### Rule 3: Stop Container (STOP)
+**Condition:** ALL queues have no messages (idle) AND at least one has receivers AND idle for configurable timeout (default 10 minutes)
 
 **Action:**
-1. Stop Azure Container App (scale to 0)
-2. Publish notification:
+1. Stop Azure Container App
+2. Publish email notification:
    - SUCCESS: If stopped successfully
    - FAILURE: If stop operation failed
 
-### Rule 3: Multi-Queue Support
-- One container can listen to multiple queues
-- **Restart:** If ANY queue has messages without receivers
-- **Stop:** Only if ALL queues are idle for the timeout period
-- **Skip:** If ANY queue has messages with receivers (working normally)
+**Rationale:** No work to do, save resources by stopping idle containers.
 
-### Rule 4: Container State Detection
-Container state is determined by queue receivers:
-- **Running:** ANY of its queues has ReceiverCount > 0
-- **Stopped:** ALL of its queues have ReceiverCount = 0
+---
+
+## Multi-Queue Decision Logic
+
+When multiple queues are mapped to a single container, the decision engine analyzes all queues together. Below are all 16 possible combinations for 2 queues:
+
+**Legend:**
+- **M+** = Messages > 0
+- **M-** = Messages = 0
+- **R+** = Receivers > 0
+- **R-** = Receivers = 0
+
+| # | QueueA | QueueB | Action | Reason |
+|---|--------|--------|--------|--------|
+| 1 | M+R+ | M+R+ | **NONE** | Both actively processing |
+| 2 | M+R+ | M+R- | **NONE** | Protect QueueA processing (QueueB stuck but wait) |
+| 3 | M+R+ | M-R+ | **NONE** | QueueA processing, QueueB idle |
+| 4 | M+R+ | M-R- | **NONE** | QueueA processing, QueueB idle |
+| 5 | M+R- | M+R+ | **NONE** | Protect QueueB processing (QueueA stuck but wait) |
+| 6 | M+R- | M+R- | **RESTART** | Both stuck - no active processing |
+| 7 | M+R- | M-R+ | **RESTART** | QueueA stuck, QueueB idle - safe to restart |
+| 8 | M+R- | M-R- | **RESTART** | QueueA stuck, QueueB idle - safe to restart |
+| 9 | M-R+ | M+R+ | **NONE** | QueueB processing, QueueA idle |
+| 10 | M-R+ | M+R- | **RESTART** | QueueB stuck, QueueA idle - safe to restart |
+| 11 | M-R+ | M-R+ | **STOP*** | Both idle with receivers → stop after timeout |
+| 12 | M-R+ | M-R- | **STOP*** | QueueA idle with receivers → stop after timeout |
+| 13 | M-R- | M+R+ | **NONE** | QueueB processing, QueueA completely idle |
+| 14 | M-R- | M+R- | **RESTART** | QueueB stuck, QueueA idle - safe to restart |
+| 15 | M-R- | M-R+ | **STOP*** | QueueB idle with receivers → stop after timeout |
+| 16 | M-R- | M-R- | **NONE** | Both completely idle (container likely already stopped) |
+
+***** STOP only triggers after IdleTimeoutMinutes has elapsed for ALL queues with receivers
+
+### Key Behaviors:
+
+**Active Processing Protection (Scenarios #2, #5):**
+- If QueueA is processing messages but QueueB is stuck, the container will NOT restart
+- This protects in-flight message processing from interruption
+- QueueB messages will accumulate until QueueA finishes processing
+- Once QueueA is idle, next poll cycle will detect QueueB stuck and trigger restart
+
+**Stuck Queue Detection (Scenarios #6, #7, #8, #10, #14):**
+- Only restarts when NO queues are actively processing
+- Messages waiting with no receivers indicates container failure
+- Safe to restart because no active work will be interrupted
+
+**Idle Timeout (Scenarios #11, #12, #15):**
+- Container stops only when ALL queues idle for full timeout period
+- Timeout is per-queue - each queue tracks its own idle time
+- If any queue becomes active during timeout, timer resets for all queues
 
 ## Configuration
 
