@@ -73,6 +73,30 @@ public class ManagerSettings : IValidatableObject
                     new[] { nameof(QueueContainerMappings) });
             }
         }
+
+        // Validate timeout relationships - CRITICAL for proper operation
+        // StuckOperationCleanupMinutes MUST be greater than OperationTimeoutMinutes
+        // This ensures Layer 2 (timeout) gets chance to work before Layer 3 (force cleanup)
+        if (StuckOperationCleanupMinutes <= OperationTimeoutMinutes)
+        {
+            yield return new ValidationResult(
+                $"StuckOperationCleanupMinutes ({StuckOperationCleanupMinutes}) must be greater than OperationTimeoutMinutes ({OperationTimeoutMinutes}). " +
+                $"Stuck cleanup is a safety net and should trigger AFTER normal timeout. Recommended: StuckOperationCleanupMinutes = OperationTimeoutMinutes + 5.",
+                new[] { nameof(StuckOperationCleanupMinutes), nameof(OperationTimeoutMinutes) });
+        }
+
+        // Validate OperationTimeoutMinutes is sufficient for normal restart operations
+        // Typical restart: Azure Stop (2-5 min) + RestartDelay (~0 min) + Azure Start (2-5 min) + Verification (5 min) = 9-15 min
+        // OperationTimeoutMinutes should be at least RestartVerificationTimeoutMinutes + 5 min for Azure API calls
+        if (OperationTimeoutMinutes < RestartVerificationTimeoutMinutes + 5)
+        {
+            yield return new ValidationResult(
+                $"OperationTimeoutMinutes ({OperationTimeoutMinutes}) should be at least {RestartVerificationTimeoutMinutes + 5} minutes " +
+                $"(RestartVerificationTimeoutMinutes + 5 minutes for Azure API calls). " +
+                $"Current setting may cause false timeouts during normal restart operations. " +
+                $"Recommended: OperationTimeoutMinutes >= {RestartVerificationTimeoutMinutes + 5}.",
+                new[] { nameof(OperationTimeoutMinutes), nameof(RestartVerificationTimeoutMinutes) });
+        }
     }
 
     private static bool IsValidEmail(string email)
