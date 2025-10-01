@@ -263,7 +263,7 @@ public class MonitoringWorker : BackgroundService
                                     _logger.LogDebug("Restart operation cleanup completed for {ContainerApp}", containerApp);
                                 }
                             }
-                        }, cancellationToken);
+                        }, CancellationToken.None);
 
                         lock (_taskLock)
                         {
@@ -352,7 +352,7 @@ public class MonitoringWorker : BackgroundService
                                     _logger.LogDebug("Stop operation cleanup completed for {ContainerApp}", containerApp);
                                 }
                             }
-                        }, cancellationToken);
+                        }, CancellationToken.None);
 
                         lock (_taskLock)
                         {
