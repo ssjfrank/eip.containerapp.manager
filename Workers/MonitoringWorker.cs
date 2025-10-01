@@ -207,50 +207,66 @@ public class MonitoringWorker : BackgroundService
                 {
                     _logger.LogInformation("Queuing restart operation for {ContainerApp}", containerApp);
 
-                    var task = Task.Run(async () =>
+                    try
                     {
-                        try
+                        var task = Task.Run(async () =>
                         {
-                            // Create timeout cancellation token
-                            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                            var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
-                            timeoutCts.CancelAfter(operationTimeout);
-
                             try
                             {
-                                await HandleRestartAsync(containerApp, timeoutCts.Token);
-                            }
-                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                            {
-                                _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout}",
-                                    containerApp, operationTimeout);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Unhandled exception in restart operation for {ContainerApp}", containerApp);
-                        }
-                        finally
-                        {
-                            lock (_operationsInProgress)
-                            {
-                                _operationsInProgress.Remove(containerApp);
-                                _operationStartTimes.Remove(containerApp);
-                                _logger.LogDebug("Restart operation cleanup completed for {ContainerApp}", containerApp);
-                            }
-                        }
-                    }, cancellationToken);
+                                // Create timeout cancellation token
+                                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                                var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
+                                timeoutCts.CancelAfter(operationTimeout);
 
-                    lock (_taskLock)
+                                try
+                                {
+                                    await HandleRestartAsync(containerApp, timeoutCts.Token);
+                                }
+                                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                                {
+                                    _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout}",
+                                        containerApp, operationTimeout);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Unhandled exception in restart operation for {ContainerApp}", containerApp);
+                            }
+                            finally
+                            {
+                                lock (_operationsInProgress)
+                                {
+                                    _operationsInProgress.Remove(containerApp);
+                                    _operationStartTimes.Remove(containerApp);
+                                    _logger.LogDebug("Restart operation cleanup completed for {ContainerApp}", containerApp);
+                                }
+                            }
+                        }, cancellationToken);
+
+                        lock (_taskLock)
+                        {
+                            _backgroundTasks.Add(task);
+
+                            // Only cleanup periodically to avoid O(n) operation on every add
+                            _cleanupCounter++;
+                            if (_cleanupCounter >= CLEANUP_THRESHOLD)
+                            {
+                                _backgroundTasks.RemoveAll(t => t.IsCompleted);
+                                _cleanupCounter = 0;
+                            }
+                        }
+
+                        _logger.LogInformation("Restart operation task started successfully for {ContainerApp}", containerApp);
+                    }
+                    catch (Exception ex)
                     {
-                        _backgroundTasks.Add(task);
+                        _logger.LogError(ex, "Failed to start restart operation task for {ContainerApp}, cleaning up", containerApp);
 
-                        // Only cleanup periodically to avoid O(n) operation on every add
-                        _cleanupCounter++;
-                        if (_cleanupCounter >= CLEANUP_THRESHOLD)
+                        // CRITICAL: Cleanup immediately if Task.Run failed to start
+                        lock (_operationsInProgress)
                         {
-                            _backgroundTasks.RemoveAll(t => t.IsCompleted);
-                            _cleanupCounter = 0;
+                            _operationsInProgress.Remove(containerApp);
+                            _operationStartTimes.Remove(containerApp);
                         }
                     }
                 }
@@ -258,50 +274,66 @@ public class MonitoringWorker : BackgroundService
                 {
                     _logger.LogInformation("Queuing stop operation for {ContainerApp}", containerApp);
 
-                    var task = Task.Run(async () =>
+                    try
                     {
-                        try
+                        var task = Task.Run(async () =>
                         {
-                            // Create timeout cancellation token
-                            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                            var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
-                            timeoutCts.CancelAfter(operationTimeout);
-
                             try
                             {
-                                await HandleStopAsync(containerApp, timeoutCts.Token);
-                            }
-                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                            {
-                                _logger.LogError("Stop operation for {ContainerApp} timed out after {Timeout}",
-                                    containerApp, operationTimeout);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Unhandled exception in stop operation for {ContainerApp}", containerApp);
-                        }
-                        finally
-                        {
-                            lock (_operationsInProgress)
-                            {
-                                _operationsInProgress.Remove(containerApp);
-                                _operationStartTimes.Remove(containerApp);
-                                _logger.LogDebug("Stop operation cleanup completed for {ContainerApp}", containerApp);
-                            }
-                        }
-                    }, cancellationToken);
+                                // Create timeout cancellation token
+                                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                                var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
+                                timeoutCts.CancelAfter(operationTimeout);
 
-                    lock (_taskLock)
+                                try
+                                {
+                                    await HandleStopAsync(containerApp, timeoutCts.Token);
+                                }
+                                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                                {
+                                    _logger.LogError("Stop operation for {ContainerApp} timed out after {Timeout}",
+                                        containerApp, operationTimeout);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Unhandled exception in stop operation for {ContainerApp}", containerApp);
+                            }
+                            finally
+                            {
+                                lock (_operationsInProgress)
+                                {
+                                    _operationsInProgress.Remove(containerApp);
+                                    _operationStartTimes.Remove(containerApp);
+                                    _logger.LogDebug("Stop operation cleanup completed for {ContainerApp}", containerApp);
+                                }
+                            }
+                        }, cancellationToken);
+
+                        lock (_taskLock)
+                        {
+                            _backgroundTasks.Add(task);
+
+                            // Only cleanup periodically to avoid O(n) operation on every add
+                            _cleanupCounter++;
+                            if (_cleanupCounter >= CLEANUP_THRESHOLD)
+                            {
+                                _backgroundTasks.RemoveAll(t => t.IsCompleted);
+                                _cleanupCounter = 0;
+                            }
+                        }
+
+                        _logger.LogInformation("Stop operation task started successfully for {ContainerApp}", containerApp);
+                    }
+                    catch (Exception ex)
                     {
-                        _backgroundTasks.Add(task);
+                        _logger.LogError(ex, "Failed to start stop operation task for {ContainerApp}, cleaning up", containerApp);
 
-                        // Only cleanup periodically to avoid O(n) operation on every add
-                        _cleanupCounter++;
-                        if (_cleanupCounter >= CLEANUP_THRESHOLD)
+                        // CRITICAL: Cleanup immediately if Task.Run failed to start
+                        lock (_operationsInProgress)
                         {
-                            _backgroundTasks.RemoveAll(t => t.IsCompleted);
-                            _cleanupCounter = 0;
+                            _operationsInProgress.Remove(containerApp);
+                            _operationStartTimes.Remove(containerApp);
                         }
                     }
                 }
@@ -409,6 +441,12 @@ public class MonitoringWorker : BackgroundService
     {
         lock (_operationsInProgress)
         {
+            // Log if there are any operations being tracked
+            if (_operationStartTimes.Count > 0)
+            {
+                _logger.LogDebug("Checking {Count} operations for stuck detection", _operationStartTimes.Count);
+            }
+
             var now = DateTime.UtcNow;
             var stuckOperations = new List<string>();
             var stuckOperationTimeout = TimeSpan.FromMinutes(_settings.StuckOperationCleanupMinutes);
@@ -418,6 +456,10 @@ public class MonitoringWorker : BackgroundService
                 var containerApp = kvp.Key;
                 var startTime = kvp.Value;
                 var duration = now - startTime;
+
+                // Log current operation duration for visibility
+                _logger.LogDebug("Operation for {ContainerApp} has been running for {Duration}",
+                    containerApp, duration);
 
                 if (duration > stuckOperationTimeout)
                 {

@@ -82,9 +82,9 @@ public class ContainerManager : IContainerManager
             var containerApp = _armClient.GetContainerAppResource(containerAppResourceId);
 
             // Stop the container app
-            _logger.LogInformation("Stopping container app {ContainerAppName}", containerAppName);
+            _logger.LogInformation("Calling Azure API to stop container app {ContainerAppName}", containerAppName);
             await containerApp.StopAsync(WaitUntil.Completed, cancellationToken);
-            _logger.LogInformation("Container app {ContainerAppName} stopped", containerAppName);
+            _logger.LogInformation("Azure API confirmed container app {ContainerAppName} stopped successfully", containerAppName);
 
             // Wait for Azure Resource Manager to propagate changes
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
@@ -104,9 +104,9 @@ public class ContainerManager : IContainerManager
             }
 
             // Start the container app
-            _logger.LogInformation("Starting container app {ContainerAppName}", containerAppName);
+            _logger.LogInformation("Calling Azure API to start container app {ContainerAppName}", containerAppName);
             await containerApp.StartAsync(WaitUntil.Completed, cancellationToken);
-            _logger.LogInformation("Container app {ContainerAppName} restarted successfully", containerAppName);
+            _logger.LogInformation("Azure API confirmed container app {ContainerAppName} started successfully", containerAppName);
         }
         catch (TaskCanceledException)
         {
@@ -134,9 +134,9 @@ public class ContainerManager : IContainerManager
             var containerApp = await _containerApps!.GetAsync(containerAppName, cancellationToken);
 
             // Use the proper Stop method instead of scaling to 0
+            _logger.LogInformation("Calling Azure API to stop container app {ContainerAppName}", containerAppName);
             await containerApp.Value.StopAsync(WaitUntil.Completed, cancellationToken);
-
-            _logger.LogInformation("Container app {ContainerAppName} stopped successfully", containerAppName);
+            _logger.LogInformation("Azure API confirmed container app {ContainerAppName} stopped successfully", containerAppName);
         }
         catch (Exception ex)
         {

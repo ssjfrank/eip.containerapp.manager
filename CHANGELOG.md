@@ -1,9 +1,9 @@
 # CHANGELOG - ContainerManager.Service
 
-## [2025-10-01] - Fix Operation Deadlock with Configurable Timeouts
+## [2025-10-01] - Fix Operation Deadlock with Enhanced Logging & Diagnostics
 
 ### Summary
-Fixed critical deadlock bug where containers would get stuck in "Operation already in progress" state forever, blocking all future restart/stop operations. Added comprehensive timeout protection and made all timeout values configurable. The issue was caused by background operations that never completed cleanup when Azure API calls hung or failed.
+Fixed critical deadlock bug where containers would get stuck in "Operation already in progress" state forever, blocking all future restart/stop operations. Added comprehensive timeout protection, made all timeout values configurable, and enhanced logging to pinpoint exactly where operations get stuck. The issue was caused by background operations that never completed cleanup when Azure API calls hung or Task.Run failed to start.
 
 ---
 
@@ -108,6 +108,155 @@ _operationStartTimes[containerApp] = DateTime.UtcNow;
 - **After:** Operations auto-timeout after 10 minutes, force-cleanup after 15 minutes
 - **Observability:** Detailed logging of operation lifecycle and timeout events
 - **Reliability:** Service self-heals from hung operations
+
+### 2. ✅ Fixed Task.Run Failure Leaving Container Stuck
+**Severity:** Critical - Production Breaking
+**Issue:** If `Task.Run()` threw an exception before the background task started, the container would remain in `_operationsInProgress` for 15 minutes until stuck detection cleanup
+
+**Root Cause:**
+- Line 202: Container added to `_operationsInProgress`
+- Line 261/210: `Task.Run(async () => ...)` throws exception (ThreadPool exhaustion, OOM, etc.)
+- Lambda never executes, so `finally` block never runs
+- Container stuck for up to 15 minutes
+
+**Files Changed:**
+- `Workers/MonitoringWorker.cs` - Wrapped Task.Run in try-catch with immediate cleanup
+
+**What Fixed:**
+```csharp
+try
+{
+    var task = Task.Run(async () => { ... }, cancellationToken);
+    // Add to background tasks
+    _logger.LogInformation("Stop operation task started successfully for {ContainerApp}", containerApp);
+}
+catch (Exception ex)
+{
+    _logger.LogError(ex, "Failed to start stop operation task for {ContainerApp}, cleaning up", containerApp);
+
+    // CRITICAL: Immediate cleanup if Task.Run failed
+    lock (_operationsInProgress)
+    {
+        _operationsInProgress.Remove(containerApp);
+        _operationStartTimes.Remove(containerApp);
+    }
+}
+```
+
+**Impact:**
+- **Before:** If Task.Run failed, container stuck for 15 minutes minimum
+- **After:** If Task.Run fails, immediate cleanup and retry on next monitoring loop (30 sec)
+
+---
+
+## Enhanced Logging & Diagnostics
+
+### New Log Entries for Complete Operation Visibility
+
+**1. Task Startup Confirmation (MonitoringWorker.cs)**
+```
+[Info] Stop operation task started successfully for {ContainerApp}
+[Info] Restart operation task started successfully for {ContainerApp}
+```
+- Confirms Task.Run succeeded and background task is running
+- If you DON'T see this after "Queuing operation", Task.Run failed
+
+**2. Task Startup Failure (MonitoringWorker.cs)**
+```
+[Error] Failed to start stop operation task for {ContainerApp}, cleaning up
+[Error] Failed to start restart operation task for {ContainerApp}, cleaning up
+```
+- Indicates Task.Run threw exception before task started
+- Container immediately cleaned up from tracking
+
+**3. Azure API Call Tracking (ContainerManager.cs)**
+```
+[Info] Calling Azure API to stop container app {ContainerAppName}
+[Info] Azure API confirmed container app {ContainerAppName} stopped successfully
+
+[Info] Calling Azure API to start container app {ContainerAppName}
+[Info] Azure API confirmed container app {ContainerAppName} started successfully
+```
+- Before/after logs bracket the actual Azure SDK call
+- If you see "Calling Azure API" but never see "confirmed", Azure API is hung
+
+**4. Stuck Operation Tracking (MonitoringWorker.cs - Debug Level)**
+```
+[Debug] Checking {Count} operations for stuck detection
+[Debug] Operation for {ContainerApp} has been running for {Duration}
+```
+- Runs every 30 seconds when operations are in progress
+- Shows real-time duration of operations
+- Helps identify slow vs hung operations
+
+**5. Enhanced Stop/Restart Logging (ContainerManager.cs)**
+- Added "Calling Azure API" log before each Azure SDK call
+- Added "Azure API confirmed" log after each successful call
+- Allows pinpointing exactly where Azure calls hang
+
+### Complete Log Flow Examples
+
+#### ✅ Successful Stop Operation:
+```
+[Info] Decision for container-xxx: Stop
+[Info] Queuing stop operation for container-xxx
+[Info] Stop operation task started successfully for container-xxx
+[Warning] Starting stop operation for container container-xxx
+[Info] Stopping container app container-xxx
+[Info] Calling Azure API to stop container app container-xxx
+[Info] Azure API confirmed container app container-xxx stopped successfully
+[Info] Container container-xxx stopped successfully due to idle queues
+[Debug] Stop operation cleanup completed for container-xxx
+```
+
+#### ❌ Task.Run Failure (NEW - Now Handled):
+```
+[Info] Decision for container-xxx: Stop
+[Info] Queuing stop operation for container-xxx
+[Error] Failed to start stop operation task for container-xxx, cleaning up
+  System.OutOfMemoryException: Insufficient memory...
+```
+**Result:** Immediate cleanup, retry on next loop (30 sec later)
+
+#### ⏱️ Azure API Timeout:
+```
+[Info] Queuing stop operation for container-xxx
+[Info] Stop operation task started successfully for container-xxx
+[Warning] Starting stop operation for container-xxx
+[Info] Stopping container app container-xxx
+[Info] Calling Azure API to stop container app container-xxx
+... 10 minutes pass ...
+[Error] Stop operation for container-xxx timed out after 00:10:00
+[Debug] Stop operation cleanup completed for container-xxx
+```
+**Result:** Operation cancelled, cleanup triggered, retry on next loop
+
+#### 🔧 Stuck Operation Detection (Debug Logs Every 30 Seconds):
+```
+[Debug] Checking 1 operations for stuck detection
+[Debug] Operation for container-xxx has been running for 00:02:30
+... 30 seconds later ...
+[Debug] Checking 1 operations for stuck detection
+[Debug] Operation for container-xxx has been running for 00:03:00
+... continues ...
+[Debug] Operation for container-xxx has been running for 00:14:30
+... 30 seconds later ...
+[Warning] Operation for container-xxx has been running for 00:15:00 (timeout: 00:15:00), forcing cleanup
+[Warning] Forcefully cleaned up stuck operation for container-xxx
+```
+
+### Diagnostic Guide: What Log is Missing?
+
+Use this guide to diagnose where operations are stuck:
+
+| Missing Log | Location Stuck | Likely Cause |
+|-------------|----------------|--------------|
+| "Stop operation task started successfully" | Task.Run failed | ThreadPool exhaustion, OOM, system resources |
+| "Starting stop operation for container" | Task queued but not running | Rare - task scheduler issue |
+| "Calling Azure API to stop" | Before Azure call | Exception in pre-Azure logic |
+| "Azure API confirmed... stopped" | Inside Azure SDK call | Azure API hung/timeout, network issue |
+| "Container stopped successfully" | After Azure API | Exception in post-Azure logic (notifications) |
+| "Stop operation cleanup completed" | Finally block | Rare - should always execute |
 
 ---
 
