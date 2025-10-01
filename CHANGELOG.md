@@ -9,6 +9,89 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 🔴 CRITICAL: Fixed Task.Run Cancellation Token Bug
+**Severity:** Critical - Production Breaking
+**Issue:** Operations never executed, containers permanently stuck in "Operation already in progress" state
+
+**Problem:**
+Task.Run was using `cancellationToken` parameter, which prevented lambda execution if token was cancelled. This caused containers to be added to `_operationsInProgress` tracking but never removed (since finally block never executed), resulting in permanent deadlock.
+
+**Evidence from Production Logs:**
+```
+16:55:19 - Operations start, 14 containers added to tracking
+16:58:20 - Decision: Stop (after 3 min idle timeout met)
+16:58:20 - "Operation already in progress, skipping"  ← No task started!
+16:59:20 - "Operation already in progress, skipping"
+17:00:20 - "Operation already in progress, skipping"
+... [9 minutes of skipping] ...
+17:04:21 - Force cleanup triggered (after 9 min timeout)
+17:04:21 - Queuing stop operation  ← Tasks finally start!
+17:04:21 - Stop operation task started successfully
+17:04:22 - Stopping container app  ← Azure API finally called
+```
+
+**Root Cause Analysis:**
+```csharp
+// BEFORE (Lines 266, 355):
+var task = Task.Run(async () => {
+    // ... operation logic with proper timeout handling ...
+    finally {
+        _operationsInProgress.Remove(containerApp);  // ← Never executes!
+    }
+}, cancellationToken);  // ← BUG: If token cancelled, lambda never runs
+```
+
+If `cancellationToken` was cancelled:
+1. Task.Run **refuses to schedule the task**
+2. Lambda never executes (no "Queuing operation" log)
+3. Finally block never runs (no cleanup)
+4. Container remains in `_operationsInProgress` forever
+5. All future operations blocked with "already in progress, skipping"
+6. Only force cleanup (after StuckOperationCleanupMinutes) could recover
+
+**The Fix:**
+```csharp
+// AFTER (Lines 266, 355):
+var task = Task.Run(async () => {
+    // Inner cancellation via timeoutCts.Token (lines 217, 306)
+    finally {
+        _operationsInProgress.Remove(containerApp);  // ← Now executes!
+    }
+}, CancellationToken.None);  // ← FIXED: Always start the task
+```
+
+**Why This is Correct:**
+- Task.Run itself should never be cancelled via parameter
+- Inner timeout logic handles cancellation via `timeoutCts.Token`
+- Task.WhenAny pattern (lines 221-251, 310-340) enforces timeout
+- Finally block now guaranteed to execute for cleanup
+- Containers properly removed from tracking when done or timeout
+
+**Impact:**
+- **Before:** Operations never started until force cleanup (9+ minutes delay)
+- **After:** Operations start immediately (< 1 second)
+- **Before:** Finally blocks never ran, causing permanent deadlock
+- **After:** Finally blocks always run, guaranteeing cleanup
+- **Before:** OperationTimeoutMinutes ineffective
+- **After:** Timeout works as designed (10 min default)
+
+**Expected Behavior After Fix:**
+```
+16:58:20 - Decision: Stop
+16:58:20 - Queuing stop operation  ← Starts immediately!
+16:58:20 - Stop operation task started successfully
+16:58:20 - Starting stop operation for container
+16:58:21 - Calling Azure API to stop
+16:59:30 - Azure API confirmed stopped successfully
+16:59:30 - Stop operation cleanup completed
+```
+
+**Files Changed:**
+- `Workers/MonitoringWorker.cs` line 266 (Restart operation)
+- `Workers/MonitoringWorker.cs` line 355 (Stop operation)
+
+---
+
 ### 🔴 Fixed NotificationPublisher Deadlock Risk
 **Severity:** Medium - Production Impact
 **Issue:** Network I/O operations executed while holding lock, causing potential thread blocking
