@@ -83,8 +83,7 @@ public class DecisionEngine : IDecisionEngine
                     "Queue {QueueName} has {MessageCount} messages with {ReceiverCount} receivers → Container working normally",
                     queue.Name, queue.PendingMessageCount, queue.ReceiverCount);
 
-                // Clear idle states since there's activity
-                ClearIdleStates(queues);
+                // Don't clear idle states here - let MonitoringWorker clear when operation actually starts
                 return ContainerAction.None;
             }
         }
@@ -99,8 +98,7 @@ public class DecisionEngine : IDecisionEngine
                     "Queue {QueueName} has {MessageCount} messages with no receivers → Restart {ContainerApp}",
                     queue.Name, queue.PendingMessageCount, containerApp);
 
-                // Clear idle states since we're taking action
-                ClearIdleStates(queues);
+                // Don't clear idle states here - let MonitoringWorker clear when operation actually starts
                 return ContainerAction.Restart;
             }
         }
@@ -180,8 +178,7 @@ public class DecisionEngine : IDecisionEngine
                     "All queues for {ContainerApp} idle for {IdleTimeout} → Stop container",
                     containerApp, idleTimeout);
 
-                // Clear idle states since we're taking action
-                ClearIdleStates(queues);
+                // Don't clear idle states here - let MonitoringWorker clear when operation actually starts
                 return ContainerAction.Stop;
             }
         }
@@ -205,5 +202,16 @@ public class DecisionEngine : IDecisionEngine
         return _containerToQueuesMap.TryGetValue(containerAppName, out var queues)
             ? queues
             : new List<string>();
+    }
+
+    public void ClearIdleStatesForQueues(List<string> queueNames)
+    {
+        foreach (var queueName in queueNames)
+        {
+            if (_idleStates.TryRemove(queueName, out _))
+            {
+                _logger.LogDebug("Cleared idle state for queue {QueueName}", queueName);
+            }
+        }
     }
 }

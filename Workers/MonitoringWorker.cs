@@ -272,11 +272,14 @@ public class MonitoringWorker : BackgroundService
         {
             _logger.LogWarning("Starting restart operation for container {ContainerApp}", containerApp);
 
-            // Restart the container
-            await _containerManager.RestartAsync(containerApp, cancellationToken);
-
             // Get queues for this container
             var queueNames = _decisionEngine.GetQueuesForContainer(containerApp);
+
+            // Clear idle states now that operation is actually starting
+            _decisionEngine.ClearIdleStatesForQueues(queueNames);
+
+            // Restart the container
+            await _containerManager.RestartAsync(containerApp, cancellationToken);
 
             // Wait for receivers to appear
             var timeout = TimeSpan.FromMinutes(_settings.RestartVerificationTimeoutMinutes);
@@ -325,9 +328,13 @@ public class MonitoringWorker : BackgroundService
         {
             _logger.LogWarning("Starting stop operation for container {ContainerApp}", containerApp);
 
-            await _containerManager.StopAsync(containerApp, cancellationToken);
-
+            // Get queues for this container
             var queueNames = _decisionEngine.GetQueuesForContainer(containerApp);
+
+            // Clear idle states now that operation is actually starting
+            _decisionEngine.ClearIdleStatesForQueues(queueNames);
+
+            await _containerManager.StopAsync(containerApp, cancellationToken);
 
             _logger.LogInformation("Container {ContainerApp} stopped successfully due to idle queues", containerApp);
 
