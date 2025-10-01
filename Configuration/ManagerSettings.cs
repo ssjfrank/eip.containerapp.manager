@@ -16,6 +16,12 @@ public class ManagerSettings : IValidatableObject
     [Range(1, 300, ErrorMessage = "RestartDelaySeconds must be between 1 and 300")]
     public int RestartDelaySeconds { get; set; } = 5;
 
+    [Range(1, 60, ErrorMessage = "OperationTimeoutMinutes must be between 1 and 60")]
+    public int OperationTimeoutMinutes { get; set; } = 10;
+
+    [Range(1, 120, ErrorMessage = "StuckOperationCleanupMinutes must be between 1 and 120")]
+    public int StuckOperationCleanupMinutes { get; set; } = 15;
+
     [Required(ErrorMessage = "QueueContainerMappings is required")]
     [MinLength(1, ErrorMessage = "At least one queue-container mapping is required")]
     public Dictionary<string, List<string>> QueueContainerMappings { get; set; } = new();
