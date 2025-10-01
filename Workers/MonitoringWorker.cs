@@ -218,14 +218,36 @@ public class MonitoringWorker : BackgroundService
                                 var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
                                 timeoutCts.CancelAfter(operationTimeout);
 
-                                try
+                                // Use Task.WhenAny to guarantee timeout enforcement
+                                var restartTask = HandleRestartAsync(containerApp, timeoutCts.Token);
+                                var timeoutTask = Task.Delay(operationTimeout, CancellationToken.None);
+
+                                var completedTask = await Task.WhenAny(restartTask, timeoutTask);
+
+                                if (completedTask == timeoutTask)
                                 {
-                                    await HandleRestartAsync(containerApp, timeoutCts.Token);
-                                }
-                                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                                {
-                                    _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout}",
+                                    // Timeout occurred - force cancellation
+                                    _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout} (forced timeout)",
                                         containerApp, operationTimeout);
+
+                                    // Trigger cancellation
+                                    timeoutCts.Cancel();
+
+                                    // Give task a few seconds to respond to cancellation, then abandon it
+                                    await Task.WhenAny(restartTask, Task.Delay(TimeSpan.FromSeconds(5)));
+                                }
+                                else
+                                {
+                                    // Task completed - re-await to surface any exceptions
+                                    try
+                                    {
+                                        await restartTask;
+                                    }
+                                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                                    {
+                                        _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout}",
+                                            containerApp, operationTimeout);
+                                    }
                                 }
                             }
                             catch (Exception ex)
@@ -285,14 +307,36 @@ public class MonitoringWorker : BackgroundService
                                 var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);
                                 timeoutCts.CancelAfter(operationTimeout);
 
-                                try
+                                // Use Task.WhenAny to guarantee timeout enforcement
+                                var stopTask = HandleStopAsync(containerApp, timeoutCts.Token);
+                                var timeoutTask = Task.Delay(operationTimeout, CancellationToken.None);
+
+                                var completedTask = await Task.WhenAny(stopTask, timeoutTask);
+
+                                if (completedTask == timeoutTask)
                                 {
-                                    await HandleStopAsync(containerApp, timeoutCts.Token);
-                                }
-                                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                                {
-                                    _logger.LogError("Stop operation for {ContainerApp} timed out after {Timeout}",
+                                    // Timeout occurred - force cancellation
+                                    _logger.LogError("Stop operation for {ContainerApp} timed out after {Timeout} (forced timeout)",
                                         containerApp, operationTimeout);
+
+                                    // Trigger cancellation
+                                    timeoutCts.Cancel();
+
+                                    // Give task a few seconds to respond to cancellation, then abandon it
+                                    await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(5)));
+                                }
+                                else
+                                {
+                                    // Task completed - re-await to surface any exceptions
+                                    try
+                                    {
+                                        await stopTask;
+                                    }
+                                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                                    {
+                                        _logger.LogError("Stop operation for {ContainerApp} timed out after {Timeout}",
+                                            containerApp, operationTimeout);
+                                    }
                                 }
                             }
                             catch (Exception ex)
@@ -360,6 +404,8 @@ public class MonitoringWorker : BackgroundService
             // Restart the container
             await _containerManager.RestartAsync(containerApp, cancellationToken);
 
+            _logger.LogInformation("Container {ContainerApp} restart completed, now verifying receivers", containerApp);
+
             // Wait for receivers to appear
             var timeout = TimeSpan.FromMinutes(_settings.RestartVerificationTimeoutMinutes);
             var hasReceivers = await _containerManager.WaitForReceiversAsync(queueNames, timeout, cancellationToken);
@@ -415,7 +461,7 @@ public class MonitoringWorker : BackgroundService
 
             await _containerManager.StopAsync(containerApp, cancellationToken);
 
-            _logger.LogInformation("Container {ContainerApp} stopped successfully due to idle queues", containerApp);
+            _logger.LogInformation("Container {ContainerApp} stop completed successfully", containerApp);
 
             await _notificationPublisher.PublishAsync(new EmailMessage
             {
