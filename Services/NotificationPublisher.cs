@@ -164,49 +164,80 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
 
     public Task PublishAsync(EmailMessage message, CancellationToken cancellationToken = default)
     {
-        lock (_lock)
+        // Quick disposal check without holding lock
+        if (_isDisposed)
         {
-            if (_isDisposed)
+            _logger.LogWarning("Notification publisher is disposed, cannot publish notification");
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            // Check if initialization needed (read-only check, no lock needed for volatile fields)
+            bool needsInit;
+            bool inBackoff = false;
+
+            lock (_lock)
             {
-                _logger.LogWarning("Notification publisher is disposed, cannot publish notification");
+                needsInit = _session == null || _sender == null;
+
+                if (needsInit && _initFailureCount >= MAX_INIT_FAILURES)
+                {
+                    // Check backoff period
+                    if (_lastInitAttempt.HasValue &&
+                        DateTime.UtcNow - _lastInitAttempt.Value < INIT_RETRY_BACKOFF)
+                    {
+                        inBackoff = true;
+                    }
+                }
+            }
+
+            if (inBackoff)
+            {
+                _logger.LogWarning(
+                    "Notification publisher not initialized and in backoff period, skipping notification to {ToEmail}",
+                    message.ToEmail);
                 return Task.CompletedTask;
             }
 
-            try
+            // Initialize connection if needed - I/O operation done OUTSIDE lock
+            if (needsInit)
             {
-                if (_session == null || _sender == null)
+                _logger.LogWarning("Notification publisher not initialized, attempting to reconnect");
+
+                try
                 {
-                    // Check if we should retry initialization
-                    if (_initFailureCount >= MAX_INIT_FAILURES)
-                    {
-                        // Check backoff period
-                        if (_lastInitAttempt.HasValue &&
-                            DateTime.UtcNow - _lastInitAttempt.Value < INIT_RETRY_BACKOFF)
-                        {
-                            _logger.LogWarning(
-                                "Notification publisher not initialized and in backoff period, skipping notification to {ToEmail}",
-                                message.ToEmail);
-                            return Task.CompletedTask;
-                        }
-                    }
+                    InitializeConnection();
+                }
+                catch (Exception)
+                {
+                    // Log and return - already logged in InitializeConnection
+                    return Task.CompletedTask;
+                }
+            }
 
-                    _logger.LogWarning("Notification publisher not initialized, attempting to reconnect");
+            // Serialize message - done OUTSIDE lock (no shared state accessed)
+            var json = JsonConvert.SerializeObject(message);
 
-                    try
-                    {
-                        InitializeConnection();
-                    }
-                    catch (Exception)
-                    {
-                        // Log and return - already logged in InitializeConnection
-                        return Task.CompletedTask;
-                    }
+            // Send message - lock only for actual send operation
+            lock (_lock)
+            {
+                // Re-check disposal state after potential wait
+                if (_isDisposed)
+                {
+                    _logger.LogWarning("Notification publisher disposed during publish operation");
+                    return Task.CompletedTask;
                 }
 
-                var json = JsonConvert.SerializeObject(message);
-                var textMessage = _session!.CreateTextMessage(json);
+                // Verify session/sender still valid (could have been cleared by another thread)
+                if (_session == null || _sender == null)
+                {
+                    _logger.LogWarning("Notification publisher connection lost before send, skipping notification");
+                    return Task.CompletedTask;
+                }
 
-                _sender!.Send(textMessage);
+                var textMessage = _session.CreateTextMessage(json);
+                _sender.Send(textMessage);
 
                 _logger.LogInformation(
                     "Published email notification: To={ToEmail}, Subject={Subject}",
@@ -215,11 +246,14 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                 // Reset failure counter on successful publish
                 _failedNotificationCount = 0;
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to publish email notification to {ToEmail}", message.ToEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish email notification to {ToEmail}", message.ToEmail);
 
-                // Track consecutive failures
+            // Track consecutive failures and mark connection as broken
+            lock (_lock)
+            {
                 _failedNotificationCount++;
 
                 if (_failedNotificationCount >= NOTIFICATION_FAILURE_WARNING_THRESHOLD)
@@ -233,9 +267,9 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                 _session = null;
                 _sender = null;
             }
-
-            return Task.CompletedTask;
         }
+
+        return Task.CompletedTask;
     }
 
     public void Dispose()
