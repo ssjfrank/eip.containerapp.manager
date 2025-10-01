@@ -7,6 +7,377 @@ Fixed critical deadlock bug where containers would get stuck in "Operation alrea
 
 ---
 
+## Code Flow Architecture & Operation Tracking
+
+### Understanding "Operation already in progress, skipping"
+
+This section explains the fire-and-forget pattern, operation tracking, and why containers stay "in progress" during operations.
+
+---
+
+### How the Monitoring Loop Works
+
+**MonitoringWorker.cs - Main Polling Loop (Every 30 seconds):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ExecuteAsync() - Main Background Worker Loop                │
+│ Polling Interval: 30 seconds (configurable)                 │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│ MonitorAndActAsync() - Single Monitoring Cycle              │
+│ Lines 169-244                                                │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ├─► 1. CleanupStuckOperations()
+                          │     Check if any operations stuck > 15 min
+                          │     Force remove if found
+                          │
+                          ├─► 2. GetAllQueuesAsync()
+                          │     Retrieve queue data from TIBCO EMS
+                          │     PendingMessageCount, ReceiverCount
+                          │
+                          ├─► 3. DecideActionsAsync()
+                          │     Apply business rules
+                          │     Returns: {containerApp: Restart/Stop/None}
+                          │
+                          └─► 4. Execute Actions (Fire-and-Forget)
+                                For each action != None:
+                                  ├─ Check _operationsInProgress
+                                  │  If already tracked → SKIP
+                                  │  Else → Add to tracking
+                                  │
+                                  └─ Task.Run(background task)
+                                     Does NOT wait for completion
+                                     Main loop continues immediately
+```
+
+---
+
+### Race Condition Prevention with Operation Tracking
+
+**The Problem Without Tracking:**
+If the same container has multiple restart decisions in rapid succession:
+- Cycle 1 (14:57:00): Decide RESTART → Start background task (takes 5-10 min)
+- Cycle 2 (14:57:30): Decide RESTART again → Start ANOTHER background task
+- Result: Two simultaneous restarts = Azure API conflicts, wasted resources
+
+**The Solution - `_operationsInProgress` HashSet:**
+
+```csharp
+// MonitoringWorker.cs Lines 195-204
+lock (_operationsInProgress)
+{
+    if (_operationsInProgress.Contains(containerApp))  // ← IS IT ALREADY RUNNING?
+    {
+        _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
+        continue;  // ← SKIP - DON'T START DUPLICATE
+    }
+
+    // Not running yet - start it
+    _operationsInProgress.Add(containerApp);  // ← MARK AS RUNNING
+    _operationStartTimes[containerApp] = DateTime.UtcNow;  // ← TRACK START TIME
+}
+```
+
+**Container Lifecycle in Tracking:**
+
+```
+14:57:00 - Container "app-1" added to _operationsInProgress
+         - Background task starts (fire-and-forget)
+         - Main loop continues immediately
+
+14:57:30 - [NEXT POLLING CYCLE]
+         - DecisionEngine: "Restart app-1" (same decision)
+         - Check: Is "app-1" in _operationsInProgress? YES
+         - Action: SKIP (log "Operation already in progress")
+
+14:58:00 - [NEXT POLLING CYCLE]
+         - Still in _operationsInProgress → SKIP again
+
+... (continues until background task finishes) ...
+
+15:02:45 - Background task completes successfully
+         - finally { _operationsInProgress.Remove("app-1") }
+         - Container now available for new operations
+
+15:03:00 - [NEXT POLLING CYCLE]
+         - Check: Is "app-1" in _operationsInProgress? NO
+         - New operation allowed if needed
+```
+
+---
+
+### Timeline: Normal vs. Stuck Operations
+
+#### ✅ Normal Operation (Completes in 3 minutes):
+
+```
+14:57:00  [Info] Decision for container-app-1: Restart
+14:57:00  [Info] Queuing restart operation for container-app-1
+14:57:00  [Info] Restart operation task started successfully for container-app-1
+14:57:00  [Warning] Starting restart operation for container container-app-1
+14:57:01  [Info] Calling Azure API to stop container app container-app-1
+14:58:15  [Info] Azure API confirmed container-app-1 stopped successfully
+14:58:20  [Info] Calling Azure API to start container app container-app-1
+14:59:42  [Info] Azure API confirmed container-app-1 started successfully
+14:59:42  [Info] Container container-app-1 restart completed, now verifying receivers
+14:59:50  [Info] All queues have receivers after 00:00:08
+15:00:00  [Debug] Restart operation cleanup completed for container-app-1
+
+[Next polling cycle at 14:57:30, 14:58:00, 14:58:30... all show "Operation already in progress, skipping"]
+```
+
+**What Happened:**
+- Container added to `_operationsInProgress` at 14:57:00
+- 13 polling cycles (30 sec each) all showed "skipping" (NORMAL)
+- Background task completed at 15:00:00
+- Container removed from tracking
+- Total duration: 3 minutes (normal for Azure Container Apps)
+
+---
+
+#### ❌ Stuck Operation (Hangs for 15 minutes):
+
+```
+14:57:00  [Info] Decision for container-app-1: Restart
+14:57:00  [Info] Queuing restart operation for container-app-1
+14:57:00  [Info] Restart operation task started successfully for container-app-1
+14:57:01  [Info] Calling Azure API to stop container app container-app-1
+14:58:15  [Info] Azure API confirmed container-app-1 stopped successfully
+
+... [HUNG HERE - No "restart completed" log, no timeout] ...
+
+14:57:30  [Debug] Operation already in progress for container-app-1, skipping
+14:58:00  [Debug] Operation already in progress for container-app-1, skipping
+14:58:30  [Debug] Operation already in progress for container-app-1, skipping
+...
+15:05:00  [Debug] Checking 1 operations for stuck detection
+15:05:00  [Debug] Operation for container-app-1 has been running for 00:08:00
+15:10:00  [Debug] Operation for container-app-1 has been running for 00:13:00
+15:12:00  [Warning] Operation for container-app-1 has been running for 00:15:00 (timeout: 00:15:00), forcing cleanup
+15:12:00  [Warning] Forcefully cleaned up stuck operation for container-app-1
+15:12:30  [Info] Decision for container-app-1: Restart  ← NOW ALLOWED AGAIN
+```
+
+**What Happened:**
+- Container added to `_operationsInProgress` at 14:57:00
+- Azure Stop API completed at 14:58:15
+- **HUNG** somewhere between Stop completion and Start call
+- Task.WhenAny timeout at 10 minutes **DID NOT TRIGGER** (the bug)
+- Background task never reached finally block to cleanup
+- 30 polling cycles (15 minutes) all showed "skipping"
+- `CleanupStuckOperations()` forcefully removed at 15-minute mark
+- Only then could new operations start
+
+---
+
+### Fire-and-Forget Pattern Explained
+
+**Misconception:** "Fire-and-forget means it's instant"
+
+**Reality:** Fire-and-forget means **the main loop doesn't wait**, but the background tasks take 5-15 minutes:
+
+```csharp
+// MonitoringWorker.cs Lines 212-266
+var task = Task.Run(async () =>  // ← Starts background task
+{
+    try
+    {
+        // This takes 5-15 minutes:
+        // 1. Azure Stop API: 2-5 minutes
+        // 2. Wait for restart delay: 5 seconds
+        // 3. Azure Start API: 2-5 minutes
+        // 4. Wait for receivers: up to 5 minutes
+        await HandleRestartAsync(containerApp, timeoutCts.Token);
+    }
+    finally
+    {
+        // CRITICAL: Remove from tracking when done
+        _operationsInProgress.Remove(containerApp);
+    }
+}, cancellationToken);
+
+// ← Main loop returns IMMEDIATELY (does NOT await task)
+// ← Next polling cycle happens 30 seconds later while task still running
+```
+
+**Why Container Stays in `_operationsInProgress` for Minutes:**
+- Background task is actually working (calling Azure APIs, waiting for responses)
+- Main monitoring loop continues polling every 30 seconds
+- Each poll sees container still tracked → skips new operations
+- **This is CORRECT behavior** - prevents duplicate operations
+- Container removed from tracking only when task completes (or force cleanup triggers)
+
+---
+
+### When "Operation already in progress, skipping" is Normal vs. Problematic
+
+#### ✅ Normal (Expected Behavior):
+
+**Scenario:** You see this message 6-20 times over 3-10 minutes, then operations succeed
+```
+14:57:00  [Info] Queuing restart operation for container-app-1
+14:57:30  [Debug] Operation already in progress for container-app-1, skipping
+14:58:00  [Debug] Operation already in progress for container-app-1, skipping
+...
+15:02:00  [Info] Container container-app-1 restarted successfully
+15:02:00  [Debug] Restart operation cleanup completed
+```
+
+**Why Normal:**
+- Azure Container Apps restart takes 3-10 minutes
+- Main loop polls every 30 seconds
+- 6-20 "skipping" messages = 3-10 minutes of work = EXPECTED
+- Eventually completes and removes from tracking
+
+---
+
+#### ❌ Problematic (Indicates Hang):
+
+**Scenario:** You see this message 20+ times (over 10+ minutes), then force cleanup triggers
+```
+14:57:00  [Info] Queuing restart operation for container-app-1
+14:57:30  [Debug] Operation already in progress for container-app-1, skipping
+14:58:00  [Debug] Operation already in progress for container-app-1, skipping
+...
+15:12:00  [Warning] Operation for container-app-1 has been running for 00:15:00, forcing cleanup
+```
+
+**Why Problematic:**
+- Operation should timeout at 10 minutes (default `OperationTimeoutMinutes`)
+- Force cleanup at 15 minutes means timeout didn't work
+- Background task is hung (not reaching finally block)
+- **Indicates a bug in timeout enforcement** (the reason for recent fixes)
+
+---
+
+### How Timeout Enforcement Works (After Recent Fixes)
+
+**Task.WhenAny Pattern (MonitoringWorker.cs Lines 221-251):**
+
+```csharp
+var operationTimeout = TimeSpan.FromMinutes(_settings.OperationTimeoutMinutes);  // Default: 10 min
+
+// Race the operation against a timeout delay
+var restartTask = HandleRestartAsync(containerApp, timeoutCts.Token);
+var timeoutTask = Task.Delay(operationTimeout, CancellationToken.None);
+
+var completedTask = await Task.WhenAny(restartTask, timeoutTask);
+
+if (completedTask == timeoutTask)  // ← TIMEOUT TASK WON THE RACE
+{
+    _logger.LogError("Restart operation for {ContainerApp} timed out after {Timeout} (forced timeout)",
+        containerApp, operationTimeout);
+
+    // Cancel and abandon the stuck task
+    timeoutCts.Cancel();
+    await Task.WhenAny(restartTask, Task.Delay(TimeSpan.FromSeconds(5)));
+}
+else  // ← OPERATION TASK COMPLETED FIRST
+{
+    await restartTask;  // Re-await to surface exceptions
+}
+
+// finally block ALWAYS executes (even after timeout)
+finally
+{
+    lock (_operationsInProgress)
+    {
+        _operationsInProgress.Remove(containerApp);  // ← GUARANTEED CLEANUP
+        _operationStartTimes.Remove(containerApp);
+    }
+}
+```
+
+**Expected Behavior After Fix:**
+```
+14:57:00  [Info] Queuing restart operation for container-app-1
+15:07:00  [Error] Restart operation for container-app-1 timed out after 00:10:00 (forced timeout)
+15:07:00  [Debug] Restart operation cleanup completed for container-app-1
+15:07:30  [Info] Decision for container-app-1: Restart  ← NEW OPERATION ALLOWED
+```
+
+Instead of waiting 15 minutes for force cleanup, timeout triggers at exactly 10 minutes.
+
+---
+
+### Diagnostic Checklist: Is Your Operation Hung?
+
+Use this checklist when you see "Operation already in progress, skipping":
+
+| Check | Normal | Problematic |
+|-------|--------|-------------|
+| How many "skipping" messages? | 6-20 times | 20+ times |
+| Duration in progress? | 3-10 minutes | 10+ minutes |
+| Timeout log appeared? | May appear if slow | Should appear at 10 min if hung |
+| Force cleanup appeared? | No | Yes (at 15 min) |
+| Cleanup completed log? | Yes (after success) | Only after force cleanup |
+| Azure API logs? | Both "Calling" and "confirmed" | Missing "confirmed" or stuck between |
+
+**Troubleshooting Steps:**
+
+1. **Check operation duration:**
+   ```
+   [Debug] Operation for container-app-1 has been running for 00:03:00  ← Normal
+   [Debug] Operation for container-app-1 has been running for 00:12:00  ← Problematic
+   ```
+
+2. **Check for timeout log:**
+   ```
+   [Error] Restart operation for container-app-1 timed out after 00:10:00
+   ```
+   - If missing and operation > 10 min → Timeout not working (bug)
+
+3. **Check for force cleanup:**
+   ```
+   [Warning] Forcefully cleaned up stuck operation for container-app-1
+   ```
+   - If this appears → Operation hung past timeout threshold (bug)
+
+4. **Check Azure API logs:**
+   ```
+   [Info] Calling Azure API to stop container app container-app-1
+   [Info] Azure API confirmed container-app-1 stopped successfully  ← Should appear
+   ```
+   - If "Calling" but no "confirmed" → Azure API hung
+
+5. **Check diagnostic logs:**
+   ```
+   [Info] Container container-app-1 restart completed, now verifying receivers
+   ```
+   - If missing → Hang between Azure API completion and next step
+
+---
+
+### Summary: The Three-Layer Safety Net
+
+**Layer 1: Normal Completion (3-10 minutes)**
+```
+Operation runs → finally { Remove from _operationsInProgress } → Done
+```
+
+**Layer 2: Timeout Enforcement (10 minutes, configurable)**
+```
+Task.WhenAny detects timeout → Cancel task → finally { Remove } → Done
+```
+
+**Layer 3: Stuck Detection Cleanup (15 minutes, configurable)**
+```
+CleanupStuckOperations() force removes if still tracked → Done
+```
+
+**Why All Three Needed:**
+- Layer 1: Handles 99% of operations (normal case)
+- Layer 2: Handles hung operations (timeout protection)
+- Layer 3: Handles catastrophic failures (e.g., finally block doesn't execute)
+
+If you see Layer 3 triggering (force cleanup), it indicates **Layer 2 failed** (timeout didn't work) → File a bug report with logs.
+
+---
+
 ## Critical Bug Fixes
 
 ### 1. ✅ Fixed Container Operation Deadlock
