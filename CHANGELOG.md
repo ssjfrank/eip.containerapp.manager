@@ -9,6 +9,143 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 🔴 CRITICAL: Fixed Race Condition and Deadlock Issues
+**Severity:** Critical - Production Impact
+**Date:** 2025-10-01 (Latest)
+
+**Issues Fixed:**
+1. Race condition in operation tracking (TOCTOU bug)
+2. Potential deadlock in notification publisher
+
+---
+
+#### 1. Race Condition in Operation Tracking (MonitoringWorker.cs)
+
+**Problem:**
+Check-and-add operations were in separate locks, creating a Time-Of-Check-Time-Of-Use (TOCTOU) vulnerability.
+
+**Before (BUGGY):**
+```csharp
+// Lines 199-218 - Check and add in SEPARATE locks
+bool alreadyInProgress;
+lock (_operationsInProgress)
+{
+    alreadyInProgress = _operationsInProgress.Contains(containerApp);  // CHECK
+}
+// ← RACE WINDOW: Another thread could add here!
+
+if (alreadyInProgress)
+{
+    continue;
+}
+
+lock (_operationsInProgress)
+{
+    _operationsInProgress.Add(containerApp);  // ADD (could be duplicate!)
+}
+```
+
+**Race Scenario:**
+```
+Thread 1: Check container X → Not found
+Thread 2: Check container X → Not found
+Thread 1: Add container X → Success
+Thread 2: Add container X → DUPLICATE!
+Result: Two restart operations for same container → Azure API conflicts
+```
+
+**Solution - Atomic Check-and-Add:**
+```csharp
+// Lines 200-216 (Restart), 308-323 (Stop) - ATOMIC operation
+bool wasAdded = false;
+lock (_operationsInProgress)
+{
+    if (!_operationsInProgress.Contains(containerApp))
+    {
+        _operationsInProgress.Add(containerApp);
+        _operationStartTimes[containerApp] = DateTime.UtcNow;
+        wasAdded = true;  // All done in ONE lock!
+    }
+}
+
+if (!wasAdded)
+{
+    _logger.LogDebug("Operation already in progress, skipping");
+    continue;
+}
+```
+
+**Impact:**
+- Prevents duplicate container operations
+- Eliminates Azure API conflicts
+- Ensures exactly-once operation execution
+
+---
+
+#### 2. Deadlock Risk in NotificationPublisher
+
+**Problem:**
+Network I/O operations (CreateTextMessage, Send) were performed inside lock, risking deadlock if Dispose() called concurrently.
+
+**Before (DEADLOCK RISK):**
+```csharp
+// Lines 223-248 - I/O operations INSIDE lock
+lock (_lock)
+{
+    if (_isDisposed) return;
+    if (_session == null || _sender == null) return;
+
+    var textMessage = _session.CreateTextMessage(json);  // ← Allocation inside lock
+    _sender.Send(textMessage);  // ← NETWORK I/O inside lock! Could block!
+
+    _failedNotificationCount = 0;
+}
+```
+
+**Deadlock Scenario:**
+```
+Thread 1: lock(_lock) → Send() → Blocks on network I/O...
+Thread 2: Dispose() → Waiting for lock(_lock)...
+Result: DEADLOCK - Thread 1 blocks on I/O, Thread 2 blocks on lock
+```
+
+**Solution - Capture References, I/O Outside:**
+```csharp
+// Lines 226-259 - Minimal lock, I/O outside
+QueueSession sessionRef;
+QueueSender senderRef;
+
+lock (_lock)
+{
+    if (_isDisposed || _session == null || _sender == null)
+        return;
+
+    sessionRef = _session;  // ← Just capture references
+    senderRef = _sender;    // ← Quick operation
+}
+
+// I/O operations OUTSIDE lock - can't cause deadlock
+var textMessage = sessionRef.CreateTextMessage(json);
+senderRef.Send(textMessage);
+
+lock (_lock)
+{
+    _failedNotificationCount = 0;  // ← Quick update in separate lock
+}
+```
+
+**Impact:**
+- Eliminates deadlock risk during disposal
+- Lock held for microseconds instead of seconds
+- Network I/O can't block other threads
+- Thread safety maintained via reference capture
+
+**Files Changed:**
+- `Workers/MonitoringWorker.cs` (lines 200-216, 308-323)
+- `Services/NotificationPublisher.cs` (lines 226-259)
+
+---
+
 ### 📚 Documentation: Restored Multi-Queue Decision Logic
 **Type:** Documentation Enhancement
 **Impact:** Critical for understanding container lifecycle behavior
