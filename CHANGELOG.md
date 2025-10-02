@@ -9,6 +9,134 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 🔴 CRITICAL: Fixed Operation Tracking Bug - Containers Stuck Forever
+**Severity:** Critical - Production Breaking
+**Issue:** Containers added to tracking for action=NONE, blocking all future operations
+
+**Problem:**
+The code added containers to `_operationsInProgress` tracking for ALL action types (including NONE), but only queued tasks for Restart/Stop. This caused containers with action=NONE to be permanently stuck in tracking, blocking all future operations.
+
+**Evidence from Production Logs:**
+```
+20:29:08 - Queues marked as idle (action=NONE, need 3 min to trigger STOP)
+         - Container added to _operationsInProgress ❌
+         - No task queued (action was NONE) ❌
+
+20:32:09 - 3 minutes passed, Decision: STOP
+         - "Operation already in progress, skipping" ❌ BLOCKED!
+
+20:33:09 - Decision: STOP (still can't execute)
+         - "Operation already in progress, skipping" ❌
+
+20:34-20:39 - 6 more minutes of being stuck...
+         - Keep deciding STOP but can't execute ❌
+
+20:39:09 - Force cleanup after 10 minutes
+         - Removed from tracking ✅
+         - STOP operation FINALLY queues ✅
+
+20:39:28 - Containers stopped (10 MINUTES TOO LATE!)
+```
+
+**Root Cause:**
+```csharp
+// BEFORE (Lines 192-204):
+foreach (var (containerApp, action) in actions)  // ← Includes action=NONE!
+{
+    lock (_operationsInProgress)
+    {
+        if (_operationsInProgress.Contains(containerApp))
+            continue;
+
+        _operationsInProgress.Add(containerApp);  // ← ALWAYS ADDS!
+        _operationStartTimes[containerApp] = DateTime.UtcNow;
+    }
+
+    if (action == ContainerAction.Restart) { /* queue restart */ }
+    else if (action == ContainerAction.Stop) { /* queue stop */ }
+    // ← If action == NONE, added to tracking but NO TASK QUEUED!
+}
+```
+
+**Why This Happened:**
+1. Queues go idle but haven't reached 3-minute threshold → action=NONE
+2. Container added to `_operationsInProgress` for action=NONE
+3. No task queued (neither Restart nor Stop executed)
+4. Container stuck in tracking with no way to remove itself
+5. 3 minutes later: Decision changes to STOP
+6. Check finds container already in `_operationsInProgress` → SKIP!
+7. Operation blocked for 10 minutes until force cleanup
+
+**The Fix:**
+```csharp
+// AFTER (Lines 192-218):
+foreach (var (containerApp, action) in actions)
+{
+    // Skip early if no action needed
+    if (action == ContainerAction.None)
+        continue;  // ← FIX: Don't process NONE actions at all!
+
+    // Check if already in progress (read-only)
+    bool alreadyInProgress;
+    lock (_operationsInProgress)
+    {
+        alreadyInProgress = _operationsInProgress.Contains(containerApp);
+    }
+
+    if (alreadyInProgress)
+    {
+        _logger.LogDebug("Operation already in progress, skipping");
+        continue;
+    }
+
+    if (action == ContainerAction.Restart)
+    {
+        // Add to tracking ONLY when queuing restart
+        lock (_operationsInProgress)
+        {
+            _operationsInProgress.Add(containerApp);
+            _operationStartTimes[containerApp] = DateTime.UtcNow;
+        }
+        // Queue restart task...
+    }
+    else if (action == ContainerAction.Stop)
+    {
+        // Add to tracking ONLY when queuing stop
+        lock (_operationsInProgress)
+        {
+            _operationsInProgress.Add(containerApp);
+            _operationStartTimes[containerApp] = DateTime.UtcNow;
+        }
+        // Queue stop task...
+    }
+}
+```
+
+**Impact:**
+- **Before:** Containers stuck for 10 minutes after idle timeout reached
+- **After:** Containers stop immediately (~20 seconds after idle timeout)
+- **Before:** Operations executed only after force cleanup
+- **After:** Operations execute when decision is made
+- **Before:** Containers added to tracking even with no work to do
+- **After:** Containers only tracked when actually performing operations
+
+**Expected Behavior After Fix:**
+```
+20:29:08 - Queues idle (0 seconds, action=NONE)
+         - NOT added to tracking ✅
+
+20:32:09 - 3 minutes idle, Decision: STOP
+         - Add to tracking ✅
+         - Queue stop operation ✅
+         - "Queuing stop operation" log appears ✅
+
+20:32:28 - Containers stopped (17 seconds later) ✅
+```
+
+**File Changed:** `Workers/MonitoringWorker.cs` (lines 192-314)
+
+---
+
 ### 🔴 CRITICAL: Fixed Task.Run Cancellation Token Bug
 **Severity:** Critical - Production Breaking
 **Issue:** Operations never executed, containers permanently stuck in "Operation already in progress" state
