@@ -9,6 +9,43 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 📚 Documentation: Restored Multi-Queue Decision Logic
+**Type:** Documentation Enhancement
+**Impact:** Critical for understanding container lifecycle behavior
+
+**What Was Restored:**
+Added back the comprehensive Multi-Queue Decision Logic section to README.md that was removed during documentation consolidation. This section is essential for understanding when containers start, stop, and restart.
+
+**Content:**
+- **Complete 16-scenario decision table** - All combinations of queue states (Messages+/-, Receivers+/-)
+- **Action mapping** - Clear decision for each scenario:
+  - NONE (9 scenarios): Container working normally, don't interfere
+  - RESTART (5 scenarios): Messages stuck without receivers
+  - STOP (3 scenarios): All queues idle for timeout period
+- **Key behavior explanations:**
+  - Active Processing Protection (scenarios #2, #5)
+  - Stuck Queue Detection (scenarios #6, #7, #8, #10, #14)
+  - Idle Timeout behavior (scenarios #11, #12, #15)
+
+**Example Scenario:**
+```
+QueueA: Messages=10, Receivers=0 (stuck)
+QueueB: Messages=5,  Receivers=2 (processing)
+
+Decision: NONE (protect QueueB active processing)
+Rationale: Never interrupt active work, even if another queue is stuck
+```
+
+**Why This Matters:**
+- Critical reference for understanding container behavior
+- Explains multi-queue coordination logic
+- Shows when containers will/won't restart
+- Documents protection mechanisms for active processing
+
+**File Changed:** `README.md` (lines 74-122)
+
+---
+
 ### 🔴 CRITICAL: Fixed Operation Tracking Bug - Containers Stuck Forever
 **Severity:** Critical - Production Breaking
 **Issue:** Containers added to tracking for action=NONE, blocking all future operations
