@@ -195,26 +195,24 @@ public class MonitoringWorker : BackgroundService
                 if (action == ContainerAction.None)
                     continue;
 
-                // Check if operation already in progress for this container
-                bool alreadyInProgress;
-                lock (_operationsInProgress)
-                {
-                    alreadyInProgress = _operationsInProgress.Contains(containerApp);
-                }
-
-                if (alreadyInProgress)
-                {
-                    _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
-                    continue;
-                }
-
                 if (action == ContainerAction.Restart)
                 {
-                    // Add to tracking ONLY when actually queuing restart
+                    // Atomic check-and-add to prevent race condition
+                    bool wasAdded = false;
                     lock (_operationsInProgress)
                     {
-                        _operationsInProgress.Add(containerApp);
-                        _operationStartTimes[containerApp] = DateTime.UtcNow;
+                        if (!_operationsInProgress.Contains(containerApp))
+                        {
+                            _operationsInProgress.Add(containerApp);
+                            _operationStartTimes[containerApp] = DateTime.UtcNow;
+                            wasAdded = true;
+                        }
+                    }
+
+                    if (!wasAdded)
+                    {
+                        _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
+                        continue;
                     }
 
                     _logger.LogInformation("Queuing restart operation for {ContainerApp}", containerApp);
@@ -306,11 +304,22 @@ public class MonitoringWorker : BackgroundService
                 }
                 else if (action == ContainerAction.Stop)
                 {
-                    // Add to tracking ONLY when actually queuing stop
+                    // Atomic check-and-add to prevent race condition
+                    bool wasAdded = false;
                     lock (_operationsInProgress)
                     {
-                        _operationsInProgress.Add(containerApp);
-                        _operationStartTimes[containerApp] = DateTime.UtcNow;
+                        if (!_operationsInProgress.Contains(containerApp))
+                        {
+                            _operationsInProgress.Add(containerApp);
+                            _operationStartTimes[containerApp] = DateTime.UtcNow;
+                            wasAdded = true;
+                        }
+                    }
+
+                    if (!wasAdded)
+                    {
+                        _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
+                        continue;
                     }
 
                     _logger.LogInformation("Queuing stop operation for {ContainerApp}", containerApp);

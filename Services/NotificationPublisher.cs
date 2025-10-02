@@ -219,7 +219,10 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
             // Serialize message - done OUTSIDE lock (no shared state accessed)
             var json = JsonConvert.SerializeObject(message);
 
-            // Send message - lock only for actual send operation
+            // Capture session and sender references inside lock, send outside lock
+            QueueSession sessionRef;
+            QueueSender senderRef;
+
             lock (_lock)
             {
                 // Re-check disposal state after potential wait
@@ -236,14 +239,22 @@ public class NotificationPublisher : INotificationPublisher, IDisposable
                     return Task.CompletedTask;
                 }
 
-                var textMessage = _session.CreateTextMessage(json);
-                _sender.Send(textMessage);
+                // Capture references to use outside lock
+                sessionRef = _session;
+                senderRef = _sender;
+            }
 
-                _logger.LogInformation(
-                    "Published email notification: To={ToEmail}, Subject={Subject}",
-                    message.ToEmail, message.Subject);
+            // Perform I/O operations OUTSIDE lock to prevent deadlock
+            var textMessage = sessionRef.CreateTextMessage(json);
+            senderRef.Send(textMessage);
 
-                // Reset failure counter on successful publish
+            _logger.LogInformation(
+                "Published email notification: To={ToEmail}, Subject={Subject}",
+                message.ToEmail, message.Subject);
+
+            // Reset failure counter on successful publish
+            lock (_lock)
+            {
                 _failedNotificationCount = 0;
             }
         }
