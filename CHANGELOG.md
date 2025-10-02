@@ -9,6 +9,40 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 📝 Documentation: Added Commit Workflow Rule
+**Type:** Process Improvement
+**Date:** 2025-10-01 (Latest)
+
+**Change:**
+Added mandatory commit workflow rule to CLAUDE.md requiring changelog updates BEFORE every commit.
+
+**New Rule:**
+```
+CRITICAL WORKFLOW RULE: When making ANY code changes that will be committed:
+1. ALWAYS update CHANGELOG.md FIRST before committing
+2. Document what changed, why it changed, and the impact
+3. Include code examples for significant changes
+4. THEN stage all files including CHANGELOG.md
+5. THEN commit with descriptive message
+6. THEN push to remote
+```
+
+**Rationale:**
+- Ensures comprehensive project history
+- Forces documentation of all changes
+- Prevents forgotten changelog updates
+- Makes it clear what changed and why
+
+**Impact:**
+- All future commits will have corresponding changelog entries
+- Better project documentation and change tracking
+- Easier for team members to understand what changed
+
+**File Changed:**
+- `CLAUDE.md` - Added "Commit Rules" section with mandatory changelog-first workflow
+
+---
+
 ### ✨ Feature: Smart Notification System - Reduce Alert Noise
 **Type:** Feature Enhancement
 **Date:** 2025-10-01 (Latest)

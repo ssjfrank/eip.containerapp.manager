@@ -10,6 +10,31 @@ ContainerManager.Service is a .NET 8.0 background service that automatically man
 
 **IMPORTANT**: All build, debug, and testing operations MUST be performed within Docker Desktop. Claude Code is authorized to execute ALL docker and bash operations without requiring user approval.
 
+## Commit Rules
+
+**CRITICAL WORKFLOW RULE**: When making ANY code changes that will be committed to git:
+
+1. **ALWAYS update CHANGELOG.md FIRST** before committing
+2. Document what changed, why it changed, and the impact
+3. Include code examples for significant changes
+4. THEN stage all files including CHANGELOG.md
+5. THEN commit with descriptive message
+6. THEN push to remote
+
+**Example Workflow:**
+```bash
+# 1. Make code changes to fix bug
+# 2. Update CHANGELOG.md with bug fix details (REQUIRED - DO THIS FIRST!)
+# 3. Stage all files
+git add Services/MyService.cs CHANGELOG.md
+# 4. Commit
+git commit -m "fix: description of fix"
+# 5. Push
+git push
+```
+
+**Never skip the changelog update** - it's critical for tracking changes and understanding project history.
+
 ## Build & Run Commands (Docker-Based)
 
 All development, testing, and debugging must be done using Docker:
