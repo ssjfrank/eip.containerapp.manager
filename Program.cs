@@ -1,5 +1,4 @@
 using ContainerManager.Service.Configuration;
-using ContainerManager.Service.Health;
 using ContainerManager.Service.Services;
 using ContainerManager.Service.Workers;
 using Microsoft.Extensions.Options;
@@ -39,14 +38,6 @@ builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
 // Register worker
 builder.Services.AddHostedService<MonitoringWorker>();
-
-// Optional: Health checks
-var enableHealthChecks = builder.Configuration.GetValue<bool>("EnableHealthChecks");
-if (enableHealthChecks)
-{
-    builder.Services.AddHealthChecks()
-        .AddCheck<ContainerHealthCheck>("container_manager");
-}
 
 var host = builder.Build();
 

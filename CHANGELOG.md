@@ -9,6 +9,45 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ## Latest Updates (2025-10-01 - Latest)
 
+### 🗑️ Cleanup: Removed Unused Health Check Code
+**Type:** Code Cleanup
+**Date:** 2025-10-01 (Latest)
+
+**Problem:**
+Health check code was present but non-functional. The application uses `Host.CreateApplicationBuilder` (background service) instead of `WebApplicationBuilder` (web host), so health check endpoints cannot be exposed or accessed.
+
+**Solution:**
+Removed all health check related code as it's incompatible with background service architecture.
+
+**Files Removed:**
+- `Health/ContainerHealthCheck.cs` - Unused health check implementation
+
+**Files Modified:**
+- `Program.cs` - Removed health check registration code (lines 43-49)
+
+**Code Removed from Program.cs:**
+```csharp
+// Removed - not usable in background service
+var enableHealthChecks = builder.Configuration.GetValue<bool>("EnableHealthChecks");
+if (enableHealthChecks)
+{
+    builder.Services.AddHealthChecks()
+        .AddCheck<ContainerHealthCheck>("container_manager");
+}
+```
+
+**Impact:**
+- Cleaner codebase without unused code
+- No functional changes (health checks were never accessible)
+- If health checks needed in future, should use WebApplicationBuilder instead
+
+**Alternative for Monitoring:**
+- Use comprehensive Serilog logging (console + file)
+- Monitor service status via Docker/systemd
+- Check logs for "Starting ContainerManager.Service" message
+
+---
+
 ### 📝 Documentation: Added Commit Workflow Rule
 **Type:** Process Improvement
 **Date:** 2025-10-01 (Latest)
