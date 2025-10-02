@@ -71,6 +71,57 @@ The decision engine evaluates queues in the following order to protect active me
 
 ---
 
+## Multi-Queue Decision Logic
+
+When multiple queues are mapped to a single container, the decision engine analyzes all queues together. Below are all 16 possible combinations for 2 queues:
+
+**Legend:**
+- **M+** = Messages > 0
+- **M-** = Messages = 0
+- **R+** = Receivers > 0
+- **R-** = Receivers = 0
+
+| # | QueueA | QueueB | Action | Reason |
+|---|--------|--------|--------|--------|
+| 1 | M+R+ | M+R+ | **NONE** | Both actively processing |
+| 2 | M+R+ | M+R- | **NONE** | Protect QueueA processing (QueueB stuck but wait) |
+| 3 | M+R+ | M-R+ | **NONE** | QueueA processing, QueueB idle |
+| 4 | M+R+ | M-R- | **NONE** | QueueA processing, QueueB idle |
+| 5 | M+R- | M+R+ | **NONE** | Protect QueueB processing (QueueA stuck but wait) |
+| 6 | M+R- | M+R- | **RESTART** | Both stuck - no active processing |
+| 7 | M+R- | M-R+ | **RESTART** | QueueA stuck, QueueB idle - safe to restart |
+| 8 | M+R- | M-R- | **RESTART** | QueueA stuck, QueueB idle - safe to restart |
+| 9 | M-R+ | M+R+ | **NONE** | QueueB processing, QueueA idle |
+| 10 | M-R+ | M+R- | **RESTART** | QueueB stuck, QueueA idle - safe to restart |
+| 11 | M-R+ | M-R+ | **STOP*** | Both idle with receivers → stop after timeout |
+| 12 | M-R+ | M-R- | **STOP*** | QueueA idle with receivers → stop after timeout |
+| 13 | M-R- | M+R+ | **NONE** | QueueB processing, QueueA completely idle |
+| 14 | M-R- | M+R- | **RESTART** | QueueB stuck, QueueA idle - safe to restart |
+| 15 | M-R- | M-R+ | **STOP*** | QueueB idle with receivers → stop after timeout |
+| 16 | M-R- | M-R- | **NONE** | Both completely idle (container likely already stopped) |
+
+***** STOP only triggers after IdleTimeoutMinutes has elapsed for ALL queues with receivers
+
+### Key Behaviors:
+
+**Active Processing Protection (Scenarios #2, #5):**
+- If QueueA is processing messages but QueueB is stuck, the container will NOT restart
+- This protects in-flight message processing from interruption
+- QueueB messages will accumulate until QueueA finishes processing
+- Once QueueA is idle, next poll cycle will detect QueueB stuck and trigger restart
+
+**Stuck Queue Detection (Scenarios #6, #7, #8, #10, #14):**
+- Only restarts when NO queues are actively processing
+- Messages waiting with no receivers indicates container failure
+- Safe to restart because no active work will be interrupted
+
+**Idle Timeout (Scenarios #11, #12, #15):**
+- Container stops only when ALL queues idle for full timeout period
+- Timeout is per-queue - each queue tracks its own idle time
+- If any queue becomes active during timeout, timer resets for all queues
+
+---
+
 ## Configuration
 
 ### Quick Start
