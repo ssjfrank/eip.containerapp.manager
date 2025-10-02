@@ -191,20 +191,32 @@ public class MonitoringWorker : BackgroundService
             // Step 3: Execute actions (fire-and-forget to not block monitoring loop)
             foreach (var (containerApp, action) in actions)
             {
+                // Skip if no action needed
+                if (action == ContainerAction.None)
+                    continue;
+
                 // Check if operation already in progress for this container
+                bool alreadyInProgress;
                 lock (_operationsInProgress)
                 {
-                    if (_operationsInProgress.Contains(containerApp))
-                    {
-                        _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
-                        continue;
-                    }
-                    _operationsInProgress.Add(containerApp);
-                    _operationStartTimes[containerApp] = DateTime.UtcNow;
+                    alreadyInProgress = _operationsInProgress.Contains(containerApp);
+                }
+
+                if (alreadyInProgress)
+                {
+                    _logger.LogDebug("Operation already in progress for {ContainerApp}, skipping", containerApp);
+                    continue;
                 }
 
                 if (action == ContainerAction.Restart)
                 {
+                    // Add to tracking ONLY when actually queuing restart
+                    lock (_operationsInProgress)
+                    {
+                        _operationsInProgress.Add(containerApp);
+                        _operationStartTimes[containerApp] = DateTime.UtcNow;
+                    }
+
                     _logger.LogInformation("Queuing restart operation for {ContainerApp}", containerApp);
 
                     try
@@ -294,6 +306,13 @@ public class MonitoringWorker : BackgroundService
                 }
                 else if (action == ContainerAction.Stop)
                 {
+                    // Add to tracking ONLY when actually queuing stop
+                    lock (_operationsInProgress)
+                    {
+                        _operationsInProgress.Add(containerApp);
+                        _operationStartTimes[containerApp] = DateTime.UtcNow;
+                    }
+
                     _logger.LogInformation("Queuing stop operation for {ContainerApp}", containerApp);
 
                     try
