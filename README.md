@@ -143,7 +143,10 @@ See `appsettings.json` for a complete configuration template with all available 
       "container-app-1": ["queue.app1.requests", "queue.app1.events"],
       "container-app-2": ["queue.app2.requests"]
     },
-    "NotificationEmailRecipient": "ops-team@example.com"
+    "NotificationEmailRecipient": "ops-team@example.com",
+    "NotifyOnSuccess": false,
+    "NotifyOnWarning": true,
+    "NotifyOnFailure": true
   },
   "EmsSettings": {
     "ServerUrl": "tcp://ems-server:7222",
@@ -176,6 +179,29 @@ See `appsettings.json` for a complete configuration template with all available 
 **Mappings & Notifications:**
 - `QueueContainerMappings` (required) - Map container apps to their queues
 - `NotificationEmailRecipient` (required) - Email address(es) for notifications (supports multiple: "ops@example.com;oncall@example.com")
+
+**Notification Levels** (control alert noise):
+- `NotifyOnSuccess` (default: false) - Send notifications for successful operations
+  - `false`: Reduces noise, only logs SUCCESS events
+  - `true`: Sends email on every successful restart/stop
+- `NotifyOnWarning` (default: true) - Send notifications for warning situations
+  - Restart WARNING: Container restarted but no receivers detected (may indicate app failure)
+- `NotifyOnFailure` (default: true) - Send notifications for critical failures
+  - Restart FAILURE: Container restart failed, messages stuck
+  - Stop FAILURE: Container stop failed, resources wasted
+
+**Recommended Settings:**
+```json
+// Production - Only alert on problems
+"NotifyOnSuccess": false,  // Skip routine operations
+"NotifyOnWarning": true,   // Alert on partial failures
+"NotifyOnFailure": true    // Alert on critical issues
+
+// Development - See everything
+"NotifyOnSuccess": true,
+"NotifyOnWarning": true,
+"NotifyOnFailure": true
+```
 
 **Configuration Validation:**
 The service validates timeout relationships at startup:

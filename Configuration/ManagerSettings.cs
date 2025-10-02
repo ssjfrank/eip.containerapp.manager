@@ -29,6 +29,11 @@ public class ManagerSettings : IValidatableObject
     [Required(ErrorMessage = "NotificationEmailRecipient is required")]
     public string NotificationEmailRecipient { get; set; } = string.Empty;
 
+    // Notification level settings - control when to send email alerts
+    public bool NotifyOnSuccess { get; set; } = false;  // Skip SUCCESS notifications (reduce noise)
+    public bool NotifyOnWarning { get; set; } = true;   // Send WARNING notifications (important alerts)
+    public bool NotifyOnFailure { get; set; } = true;   // Send FAILURE notifications (critical alerts)
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         // Validate NotificationEmailRecipient (supports semicolon or comma-separated list)
