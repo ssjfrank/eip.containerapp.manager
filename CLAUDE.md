@@ -35,6 +35,151 @@ git push
 
 **Never skip the changelog update** - it's critical for tracking changes and understanding project history.
 
+## Health Check Endpoints
+
+The service exposes HTTP health check endpoints on port 8080 for Azure Container Apps monitoring. The application uses `WebApplication.CreateBuilder()` to add HTTP capability while maintaining its background service architecture.
+
+### Available Endpoints
+
+1. **`/health/live` - Liveness Probe**
+   - Always returns `200 OK` if the application is running
+   - Used by Azure Container Apps to determine if the container should be restarted
+   - Only critical, unrecoverable failures cause this to fail
+
+2. **`/health/ready` - Readiness Probe**
+   - Returns `200 OK` when EMS is connected
+   - Returns `200 OK` with `Degraded` status when EMS is disconnected
+   - Service continues running during EMS disconnections (graceful degradation)
+   - Used to determine if the container is ready to do work
+
+3. **`/health/startup` - Startup Probe**
+   - Returns `503 Service Unavailable` during initialization
+   - Returns `200 OK` after initialization attempts complete
+   - Used to determine when the container has finished starting
+
+### Testing Health Endpoints Locally
+
+```bash
+# Build and run with port mapping
+docker build -t container-manager:dev .
+docker run --rm -p 8080:8080 \
+  -v $(pwd)/appsettings.json:/app/appsettings.json \
+  -v $(pwd)/logs:/app/logs \
+  container-manager:dev
+
+# In another terminal, test endpoints
+curl http://localhost:8080/health/live
+# Expected: Healthy
+
+curl http://localhost:8080/health/ready
+# Expected: Healthy (if EMS connected) or Degraded (if EMS down)
+
+curl http://localhost:8080/health/startup
+# Expected: Healthy (after initialization complete)
+```
+
+### Azure Container Apps Configuration
+
+Configure health probes in your Azure Container App definition:
+
+**Using Azure CLI:**
+```bash
+az containerapp create \
+  --name container-manager \
+  --resource-group your-rg \
+  --environment your-env \
+  --image your-registry.azurecr.io/container-manager:latest \
+  --target-port 8080 \
+  --ingress internal \
+  --startup-probe-http-get /health/startup 8080 \
+  --startup-probe-failure-threshold 30 \
+  --startup-probe-period-seconds 10 \
+  --liveness-probe-http-get /health/live 8080 \
+  --liveness-probe-initial-delay 10 \
+  --liveness-probe-period-seconds 30 \
+  --readiness-probe-http-get /health/ready 8080 \
+  --readiness-probe-initial-delay 5 \
+  --readiness-probe-period-seconds 10
+```
+
+**Using ARM Template / Bicep:**
+```yaml
+configuration:
+  ingress:
+    external: false
+    targetPort: 8080
+    transport: http
+  containers:
+    - name: container-manager
+      image: your-registry.azurecr.io/container-manager:latest
+      resources:
+        cpu: 0.5
+        memory: 1Gi
+      probes:
+        # Startup probe - allows up to 5 minutes for initialization (30 attempts x 10s)
+        - type: startup
+          httpGet:
+            path: /health/startup
+            port: 8080
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          failureThreshold: 30
+
+        # Liveness probe - restart container if unhealthy for 90 seconds (3 failures x 30s)
+        - type: liveness
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          failureThreshold: 3
+
+        # Readiness probe - stop routing if unhealthy for 30 seconds (3 failures x 10s)
+        - type: readiness
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+```
+
+### Health Check Behavior
+
+| Scenario | Liveness | Readiness | Startup | Container Action |
+|----------|----------|-----------|---------|------------------|
+| Service starting up | Healthy | Unhealthy | Unhealthy | Wait for startup |
+| Service running normally | Healthy | Healthy | Healthy | No action |
+| EMS temporarily disconnected | Healthy | Degraded (200 OK) | Healthy | Continue running, auto-recover |
+| Critical failure | Unhealthy | Unhealthy | Healthy | Restart container |
+
+**Important Notes:**
+- `Degraded` status returns HTTP 200 (not 503), so the container continues running
+- The service auto-recovers from EMS disconnections without restart
+- Startup probe prevents premature liveness/readiness checks during initialization
+- All probes are independent - one failing doesn't affect the others
+
+### Kestrel Configuration
+
+Port 8080 is configured in `appsettings.json`:
+
+```json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://*:8080"
+      }
+    }
+  }
+}
+```
+
+Can also be overridden via environment variable:
+```bash
+docker run -e ASPNETCORE_URLS=http://+:8080 ...
+```
+
 ## Build & Run Commands (Docker-Based)
 
 All development, testing, and debugging must be done using Docker:
@@ -43,28 +188,28 @@ All development, testing, and debugging must be done using Docker:
 # Build Docker image
 docker build -t container-manager:dev .
 
-# Run container with configuration
-docker run --rm \
+# Run container with configuration and health endpoint port mapping
+docker run --rm -p 8080:8080 \
   -v $(pwd)/appsettings.json:/app/appsettings.json \
   -v $(pwd)/logs:/app/logs \
   container-manager:dev
 
 # Run with environment variable overrides
-docker run --rm \
+docker run --rm -p 8080:8080 \
   -e ManagerSettings__IdleTimeoutMinutes=15 \
   -e EmsSettings__ServerUrl=tcp://ems-server:7222 \
   -v $(pwd)/logs:/app/logs \
   container-manager:dev
 
 # Debug mode with verbose logging
-docker run --rm \
+docker run --rm -p 8080:8080 \
   -e Serilog__MinimumLevel__Default=Debug \
   -v $(pwd)/appsettings.json:/app/appsettings.json \
   -v $(pwd)/logs:/app/logs \
   container-manager:dev
 
 # Build and run in one command
-docker build -t container-manager:dev . && docker run --rm \
+docker build -t container-manager:dev . && docker run --rm -p 8080:8080 \
   -v $(pwd)/appsettings.json:/app/appsettings.json \
   -v $(pwd)/logs:/app/logs \
   container-manager:dev

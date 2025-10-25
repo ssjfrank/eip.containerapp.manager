@@ -25,6 +25,10 @@ public class MonitoringWorker : BackgroundService
     private int _cleanupCounter = 0;
     private const int CLEANUP_THRESHOLD = 10;
 
+    // Health check tracking properties (thread-safe - only modified in ExecuteAsync)
+    public bool IsInitializationComplete { get; private set; }
+    public bool IsRunning { get; private set; }
+
     public MonitoringWorker(
         ILogger<MonitoringWorker> logger,
         IOptions<ManagerSettings> settings,
@@ -79,6 +83,9 @@ public class MonitoringWorker : BackgroundService
             }
         }
 
+        // Mark initialization phase as complete (regardless of success/failure)
+        IsInitializationComplete = true;
+
         if (!isInitialized)
         {
             _logger.LogCritical("Service initialization failed, exiting");
@@ -93,6 +100,9 @@ public class MonitoringWorker : BackgroundService
 
         try
         {
+            // Mark service as running now that we're entering the main loop
+            IsRunning = true;
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
@@ -116,6 +126,9 @@ public class MonitoringWorker : BackgroundService
         }
         finally
         {
+            // Mark service as no longer running
+            IsRunning = false;
+
             // Cancel any in-flight operations
             _shutdownCts?.Cancel();
 

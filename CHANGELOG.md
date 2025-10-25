@@ -7,7 +7,207 @@ Fixed multiple critical issues: container operation deadlock, notification publi
 
 ---
 
-## Latest Updates (2025-10-01 - Latest)
+## Latest Updates (2025-10-25 - Latest)
+
+### ✨ Feature: Add HTTP Health Check Endpoints for Azure Container Apps
+**Type:** Feature Addition
+**Date:** 2025-10-25 (Latest)
+
+**Background:**
+Previously removed health check code (2025-10-01) because it was incompatible with `Host.CreateApplicationBuilder`. Now implementing health checks using the correct approach for background services.
+
+**Solution:**
+Use `WebApplication.CreateBuilder()` instead of `Host.CreateApplicationBuilder()` while keeping the Worker SDK (`Microsoft.NET.Sdk.Worker`). This adds HTTP endpoint capability without changing the application's background service architecture.
+
+**Key Design Decisions:**
+
+1. **Minimal Architecture Change:**
+   - Keep `Microsoft.NET.Sdk.Worker` (no SDK change)
+   - Change only `Program.cs` to use `WebApplication.CreateBuilder()`
+   - `MonitoringWorker` remains a `BackgroundService` - no changes to core logic
+
+2. **Three Separate Health Endpoints:**
+   - `/health/live` - Liveness probe (always healthy if app running)
+   - `/health/ready` - Readiness probe (checks EMS connectivity)
+   - `/health/startup` - Startup probe (checks initialization complete)
+
+3. **Graceful Degradation:**
+   - EMS disconnection reports `Degraded` status (HTTP 200)
+   - Container continues running and auto-recovers
+   - Only critical failures cause unhealthy status (HTTP 503)
+
+**Files Created:**
+- `Health/LivenessHealthCheck.cs` - Simple liveness check
+- `Health/EmsReadinessHealthCheck.cs` - EMS connectivity check with degraded mode
+- `Health/StartupHealthCheck.cs` - Initialization completion check
+
+**Files Modified:**
+- `Program.cs` - Changed to `WebApplication.CreateBuilder()`, added health endpoints
+- `Workers/MonitoringWorker.cs` - Added public properties for health tracking
+- `appsettings.json` - Added `HealthCheckSettings` configuration
+- `Dockerfile` - Exposed port 8080 and set ASPNETCORE_URLS
+- `CLAUDE.md` - Added health endpoint documentation and Azure Container Apps examples
+
+**New Configuration (appsettings.json):**
+```json
+{
+  "HealthCheckSettings": {
+    "Enabled": true,
+    "Port": 8080
+  },
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://*:8080"
+      }
+    }
+  }
+}
+```
+
+**MonitoringWorker Changes:**
+```csharp
+// Added public properties for health checks (thread-safe access)
+public bool IsInitializationComplete { get; private set; }
+public bool IsRunning { get; private set; }
+
+// Set at appropriate points in ExecuteAsync:
+// - IsInitializationComplete = true after init retry loop
+// - IsRunning = true when entering main polling loop
+// - IsRunning = false on graceful shutdown
+```
+
+**Program.cs Changes:**
+```csharp
+// OLD:
+var builder = Host.CreateApplicationBuilder(args);
+// ... service registration ...
+var host = builder.Build();
+await host.RunAsync();
+
+// NEW:
+var builder = WebApplication.CreateBuilder(args);
+// ... service registration (unchanged) ...
+builder.Services.AddHealthChecks()
+    .AddCheck<LivenessHealthCheck>("liveness", tags: new[] { "live" })
+    .AddCheck<EmsReadinessHealthCheck>("readiness", tags: new[] { "ready" })
+    .AddCheck<StartupHealthCheck>("startup", tags: new[] { "startup" });
+builder.Services.AddHostedService<MonitoringWorker>();
+
+var app = builder.Build();
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+app.MapHealthChecks("/health/startup", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("startup")
+});
+await app.RunAsync();
+```
+
+**Docker Testing:**
+```bash
+# Build and run
+docker build -t container-manager:dev .
+docker run --rm -p 8080:8080 \
+  -v $(pwd)/appsettings.json:/app/appsettings.json \
+  -v $(pwd)/logs:/app/logs \
+  container-manager:dev
+
+# Test health endpoints
+curl http://localhost:8080/health/live      # Should return: Healthy
+curl http://localhost:8080/health/ready     # Should return: Healthy or Degraded
+curl http://localhost:8080/health/startup   # Should return: Healthy after init
+```
+
+**Azure Container Apps Configuration:**
+```yaml
+configuration:
+  ingress:
+    external: false
+    targetPort: 8080
+    transport: http
+  containers:
+    - name: container-manager
+      image: your-registry.azurecr.io/container-manager:latest
+      probes:
+        - type: liveness
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          failureThreshold: 3
+        - type: readiness
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        - type: startup
+          httpGet:
+            path: /health/startup
+            port: 8080
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          failureThreshold: 30
+```
+
+**Health Check Response Examples:**
+
+*Liveness (always healthy):*
+```
+Status: 200 OK
+Healthy
+```
+
+*Readiness (EMS connected):*
+```
+Status: 200 OK
+Healthy
+```
+
+*Readiness (EMS disconnected - degraded but still healthy):*
+```
+Status: 200 OK
+Degraded
+```
+
+*Startup (during initialization):*
+```
+Status: 503 Service Unavailable
+Unhealthy
+```
+
+*Startup (after initialization):*
+```
+Status: 200 OK
+Healthy
+```
+
+**Impact:**
+- ✅ Azure Container Apps can now monitor service health
+- ✅ Automatic restart on liveness probe failure
+- ✅ Traffic routing based on readiness probe
+- ✅ Graceful startup with startup probe
+- ✅ Service continues during temporary EMS disconnections (degraded mode)
+- ✅ No behavioral changes to MonitoringWorker core logic
+- ✅ Minimal overhead (Kestrel runs in parallel with background service)
+
+**Backward Compatibility:**
+- All existing functionality preserved
+- Can disable health checks via configuration if needed
+- No breaking changes to service behavior
+
+---
+
+## Previous Updates (2025-10-01)
 
 ### 🗑️ Cleanup: Removed Unused Health Check Code
 **Type:** Code Cleanup

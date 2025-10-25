@@ -25,4 +25,10 @@ COPY --from=build /app/publish .
 # Create logs directory
 RUN mkdir -p /app/logs
 
+# Expose health check port
+EXPOSE 8080
+
+# Set Kestrel to listen on port 8080
+ENV ASPNETCORE_URLS=http://+:8080
+
 ENTRYPOINT ["dotnet", "ContainerManager.Service.dll"]

@@ -1,10 +1,14 @@
 using ContainerManager.Service.Configuration;
+using ContainerManager.Service.Health;
 using ContainerManager.Service.Services;
 using ContainerManager.Service.Workers;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Serilog;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -36,15 +40,38 @@ builder.Services.AddSingleton<IContainerManager, ContainerManager.Service.Servic
 builder.Services.AddSingleton<IDecisionEngine, DecisionEngine>();
 builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
-// Register worker
-builder.Services.AddHostedService<MonitoringWorker>();
+// Register MonitoringWorker as singleton so health checks can access it
+builder.Services.AddSingleton<MonitoringWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringWorker>());
 
-var host = builder.Build();
+// Register health checks with tags for filtering
+builder.Services.AddHealthChecks()
+    .AddCheck<LivenessHealthCheck>("liveness", tags: new[] { "live" })
+    .AddCheck<EmsReadinessHealthCheck>("readiness", tags: new[] { "ready" })
+    .AddCheck<StartupHealthCheck>("startup", tags: new[] { "startup" });
+
+var app = builder.Build();
+
+// Map health check endpoints with tag filtering
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+
+app.MapHealthChecks("/health/startup", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("startup")
+});
 
 try
 {
-    Log.Information("Starting ContainerManager.Service");
-    await host.RunAsync();
+    Log.Information("Starting ContainerManager.Service with health endpoints enabled");
+    await app.RunAsync();
 }
 catch (Exception ex)
 {
