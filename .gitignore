@@ -1,39 +1,98 @@
 # Build results
 bin/
 obj/
-logs/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+publish/
+[Pp]ublish/
+
+# NuGet packages
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+[Pp]ackages/
 
 # User-specific files
 *.user
+*.userosscache
+*.sln.user
 *.suo
 *.userprefs
+*.sln.DotSettings.user
+*.sln.DotSettings
 
 # IDE files
 .vs/
 .vscode/
 .idea/
+*.iml
+*.vsix
 
 # OS files
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
 
 # Environment variables
 .env
 .env.local
 .env.*.local
 
-# Test configuration
+# Configuration files (keep appsettings.json, ignore environment-specific ones)
 appsettings.test.json
-appsettings.*.json
-!appsettings.json
+appsettings.*.local.json
+appsettings.development.json
+appsettings.staging.json
+appsettings.production.json
 
 # Temporary files
 *.tmp
 *.temp
+*.bak
+*.swp
 
-# NuGet packages
-*.nupkg
-*.snupkg
+# Test results
+TestResults/
+[Cc]overage/
+*.trx
+*.coverage
+*.coveragexml
 
-# Docker volumes
+# Docker
 docker-compose.override.yml
+.docker/
+
+# Visual Studio Code
+.vscode/launch.json
+.vscode/settings.json
+
+# Rider
+.idea/
+*.iml
+*.sln.iml
+
+# ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Miscellaneous
+*.lic
